@@ -51,14 +51,10 @@ finish-args:
   # Users with a game install outside $HOME can add a per-user override via
   #   flatpak override --user --filesystem=/path/to/game com.blackthorn.daoc.Launcher
   - --filesystem=home
-  # Full host filesystem access so Wine is findable on any distro layout
-  # (FHS, Guix, NixOS) and game installs on external drives are reachable.
-  # org.winehq.Wine (Flathub) is a standalone app, not a consumable extension,
-  # so bundling host access is the practical alternative to shipping Wine ourselves.
-  - --filesystem=host
   - --filesystem=/mnt
   - --filesystem=/media
   - --filesystem=/run/media
+  - --allow=multiarch
   - --talk-name=org.freedesktop.Notifications
   - --env=ELECTRON_OZONE_PLATFORM_HINT=auto
 
@@ -69,6 +65,17 @@ cleanup:
   - '*.a'
 
 modules:
+  - name: wine
+    buildsystem: simple
+    build-commands:
+      - install -d /app/wine
+      - cp -ra . /app/wine
+    sources:
+      - type: archive
+        url: https://github.com/GloriousEggroll/wine-ge-custom/releases/download/GE-Proton8-26/wine-lutris-GE-Proton8-26-x86_64.tar.xz
+        sha512: 3abd578ed45a16096843936e0258799450e6a5751bc67afaf8c58cd245c40e62794a89af25ae482d74d5ca2b7527d17ff77232781c6d9cf97bc02976c2f960bd
+        strip-components: 1
+
   - name: blackthorn-launcher
     buildsystem: simple
     build-commands:
