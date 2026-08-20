@@ -24,7 +24,7 @@ permissions:
 jobs:
   build-flatpak:
     name: Build Flatpak
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
       - name: Check out packaging repo
@@ -60,13 +60,6 @@ jobs:
             "git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node"
           flatpak-node-generator --no-requests-cache npm upstream/package-lock.json \
             -o upstream/flatpak/generated-sources.json
-
-      - name: Install flatpak-builder and configure Flathub
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y flatpak flatpak-builder
-          sudo flatpak remote-add --if-not-exists flathub \
-            https://dl.flathub.org/repo/flathub.flatpakrepo
 
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
