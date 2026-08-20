@@ -51,8 +51,11 @@ finish-args:
   # Users with a game install outside $HOME can add a per-user override via
   #   flatpak override --user --filesystem=/path/to/game com.blackthorn.daoc.Launcher
   - --filesystem=home
-  # Expose host OS tree at /run/host so the launcher can find system Wine
-  - --filesystem=host-os
+  # Expose full host filesystem so Wine is findable on any distro:
+  #   FHS (Ubuntu/Fedora/Arch): wine lives under /run/host/usr/bin
+  #   Guix: wine is in ~/.guix-profile/bin; ELF interpreter under /gnu/store
+  #   NixOS: wine is in ~/.nix-profile/bin; libraries under /nix/store
+  - --filesystem=host
   - --talk-name=org.freedesktop.Notifications
   - --env=ELECTRON_OZONE_PLATFORM_HINT=auto
 
