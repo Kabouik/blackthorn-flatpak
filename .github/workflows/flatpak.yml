@@ -61,6 +61,11 @@ jobs:
           flatpak-node-generator --no-requests-cache npm upstream/package-lock.json \
             -o upstream/flatpak/generated-sources.json
 
+      - name: Install flatpak-builder
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y flatpak flatpak-builder
+
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
