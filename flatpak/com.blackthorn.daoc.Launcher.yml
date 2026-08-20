@@ -1,0 +1,126 @@
+app-id: com.blackthorn.daoc.Launcher
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+base: org.electronjs.Electron2.BaseApp
+base-version: '24.08'
+
+# Provides node/npm during the build (not included in freedesktop SDK by default)
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.node20
+
+command: blackthorn-launcher
+
+# Electron apps bundle their own locale files — splitting them would break the app
+separate-locales: false
+
+build-options:
+  env:
+    # Put node/npm from the SDK extension first on PATH
+    PATH: /usr/lib/sdk/node20/bin:/app/bin:/usr/bin
+    # flatpak-node-generator populates these directories via generated-sources.json.
+    # @electron/get resolves its cache root via env-paths('electron'), which on Linux
+    # returns $XDG_CACHE_HOME/electron. Setting XDG_CACHE_HOME here makes it resolve
+    # to flatpak-node/cache/electron — exactly where generated-sources.json places the
+    # hash-bucketed electron zip (flatpak-node/cache/electron/{sha256hash}/…).
+    # ELECTRON_BUILDER_CACHE is for electron-builder's own tool cache (fpm, 7zip…).
+    XDG_CACHE_HOME: /run/build/blackthorn-launcher/flatpak-node/cache
+    ELECTRON_BUILDER_CACHE: /run/build/blackthorn-launcher/flatpak-node/cache
+    npm_config_cache: /run/build/blackthorn-launcher/flatpak-node/npm-cache
+    HOME: /run/build/blackthorn-launcher
+    CI: 'true'
+    # Skip the electron npm package's postinstall download; electron-builder
+    # fetches the binary itself via @electron/get (cache resolved by XDG_CACHE_HOME).
+    ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    # Playwright downloads Chromium during npm install; we don't need it here
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+finish-args:
+  - --socket=x11
+  - --socket=wayland
+  - --share=ipc
+  - --share=network           # patch downloads, SignalR hub
+  - --device=dri
+  - --socket=pulseaudio
+  # The game client path is set by the user in launcher settings and is not
+  # known at package time. Wine prefixes live under $HOME by default.
+  # Users with a game install outside $HOME can add a per-user override via
+  #   flatpak override --user --filesystem=/path/to/game com.blackthorn.daoc.Launcher
+  - --filesystem=home
+  - --talk-name=org.freedesktop.Notifications
+  - --env=ELECTRON_OZONE_PLATFORM_HINT=auto
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - '*.la'
+  - '*.a'
+
+modules:
+  - name: blackthorn-launcher
+    buildsystem: simple
+    build-commands:
+      # Ensure the cef-runtime directory exists; if absent the launcher fetches
+      # the runtime from the CDN on first launch instead of using a bundled copy.
+      - mkdir -p build/cef-runtime
+
+      # Install npm dependencies from the offline cache produced by setup.sh
+      - npm ci --offline
+
+      # Build TypeScript frontend (Vite), type-check the Electron host, then
+      # compile and bundle the Electron main/preload processes with esbuild
+      - npm run electron:build
+
+      # Patch electron-builder.yml in the sandbox (real project file unchanged):
+      #   electronDist — use the pre-downloaded zip so @electron/get is bypassed
+      #                  entirely (avoids mandatory SHASUMS256.txt network fetch).
+      #   linux.target  — restrict to "dir" only so AppImage/deb/rpm targets are
+      #                   not attempted (they would need to download tools from GitHub).
+      - |
+        node -e "
+        const fs = require('fs');
+        const yaml = require('js-yaml');
+        const cfg = yaml.load(fs.readFileSync('electron-builder.yml', 'utf8'));
+        cfg.electronDist = 'flatpak-node/cache/electron/electron-v22.3.27-linux-x64.zip';
+        cfg.linux = Object.assign({}, cfg.linux, { target: [{ target: 'dir', arch: ['x64'] }] });
+        fs.writeFileSync('electron-builder.yml', yaml.dump(cfg));
+        "
+
+      # Package as an unpacked directory — no AppImage/deb/rpm needed inside
+      # the Flatpak sandbox
+      - npx --no electron-builder --linux --publish=never
+
+      # Install the unpacked app; the version comes from package.json
+      - |
+        VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
+        install -d /app/lib/launcher
+        cp -ra "artifacts/electron/${VERSION}/linux-unpacked/." /app/lib/launcher/
+
+      # electron-builder uses executableName verbatim; rename to drop the space
+      - mv '/app/lib/launcher/Blackthorn Launcher' /app/lib/launcher/blackthorn-launcher
+
+      # Wrapper script, desktop entry, icon, AppStream metadata
+      - install -Dm755 flatpak/blackthorn-launcher.sh /app/bin/blackthorn-launcher
+      - install -Dm644 build/icons/icon.png
+          /app/share/icons/hicolor/512x512/apps/com.blackthorn.daoc.Launcher.png
+      - install -Dm644 flatpak/com.blackthorn.daoc.Launcher.desktop
+          /app/share/applications/com.blackthorn.daoc.Launcher.desktop
+      - install -Dm644 flatpak/com.blackthorn.daoc.Launcher.metainfo.xml
+          /app/share/metainfo/com.blackthorn.daoc.Launcher.metainfo.xml
+
+    sources:
+      # Launcher source tree (excludes build artefacts and the flatpak dir itself
+      # to avoid pulling in generated-sources.json twice)
+      - type: dir
+        path: ..
+        skip:
+          - .git
+          - node_modules
+          - artifacts
+          - build/cef-runtime
+          - build/native-tests
+
+      # npm dependency sources + Electron binary — generated by flatpak/setup.sh using
+      # flatpak-node-generator. Must be (re-)generated when package-lock.json
+      # changes and the result committed to the repository.
+      - generated-sources.json

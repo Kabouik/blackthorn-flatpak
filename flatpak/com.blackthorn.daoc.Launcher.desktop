@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Blackthorn Launcher
+Comment=Launcher for the Blackthorn Dark Age of Camelot server
+Exec=blackthorn-launcher
+Icon=com.blackthorn.daoc.Launcher
+Type=Application
+Categories=Game;
+StartupWMClass=blackthorn-launcher
