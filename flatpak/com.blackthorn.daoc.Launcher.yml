@@ -51,6 +51,8 @@ finish-args:
   # Users with a game install outside $HOME can add a per-user override via
   #   flatpak override --user --filesystem=/path/to/game com.blackthorn.daoc.Launcher
   - --filesystem=home
+  # Expose host OS tree at /run/host so the launcher can find system Wine
+  - --filesystem=host-os
   - --talk-name=org.freedesktop.Notifications
   - --env=ELECTRON_OZONE_PLATFORM_HINT=auto
 
