@@ -1,0 +1,76 @@
+name: Build Flatpak
+
+# Triggers:
+#   - Daily schedule: checks daoc-blackthorn/launcher for a new release and
+#     builds if the latest tag has changed since the previous run.
+#   - workflow_dispatch: build a specific tag (or "latest" if left blank).
+#
+# Required secret:
+#   LAUNCHER_TOKEN — a PAT with read access to daoc-blackthorn/launcher.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Upstream release tag to build (empty = latest)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build-flatpak:
+    name: Build Flatpak
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out packaging repo
+        uses: actions/checkout@v4
+
+      - name: Resolve upstream release tag
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.LAUNCHER_TOKEN }}
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            TAG=$(gh release view --repo daoc-blackthorn/launcher \
+                    --json tagName --jq .tagName)
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out launcher source at ${{ steps.release.outputs.tag }}
+        uses: actions/checkout@v4
+        with:
+          repository: daoc-blackthorn/launcher
+          ref: ${{ steps.release.outputs.tag }}
+          token: ${{ secrets.LAUNCHER_TOKEN }}
+          path: upstream
+
+      - name: Overlay packaging files onto upstream source
+        run: cp -r flatpak upstream/flatpak
+
+      - name: Generate npm offline sources for Flatpak
+        run: |
+          pip install --quiet \
+            "git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node"
+          flatpak-node-generator --no-requests-cache npm upstream/package-lock.json \
+            -o upstream/flatpak/generated-sources.json
+
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: Blackthorn-Launcher-${{ steps.release.outputs.tag }}-linux-x64.flatpak
+          manifest-path: upstream/flatpak/com.blackthorn.daoc.Launcher.yml
+          cache-key: flatpak-builder-${{ steps.release.outputs.tag }}
+
+      - name: Upload Flatpak bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: blackthorn-launcher-flatpak-${{ steps.release.outputs.tag }}
+          path: Blackthorn-Launcher-*.flatpak
+          if-no-files-found: error
