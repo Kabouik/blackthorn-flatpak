@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.blackthorn.daoc.Launcher</id>
+  <name>Blackthorn Launcher</name>
+  <summary>Launcher for the Blackthorn Dark Age of Camelot server</summary>
+  <description>
+    <p>
+      The Blackthorn Launcher downloads and patches the Dark Age of Camelot
+      game client, manages server connections, and provides an in-game UI
+      overlay for the Blackthorn private server.
+    </p>
+    <p>
+      The launcher needs access to the game client directory chosen by the
+      user in its settings. By default it expects Wine prefixes under the
+      home directory. Users with a game installation elsewhere can grant
+      access with:
+    </p>
+    <p>
+      flatpak override --user --filesystem=/path/to/game com.blackthorn.daoc.Launcher
+    </p>
+  </description>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <url type="homepage">https://blackthorn-daoc.com</url>
+  <launchable type="desktop-id">com.blackthorn.daoc.Launcher.desktop</launchable>
+  <releases>
+    <release version="0.30.0" date="2026-08-20"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>
