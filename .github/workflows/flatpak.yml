@@ -19,7 +19,7 @@ on:
         default: ''
 
 permissions:
-  contents: read
+  contents: write   # needed to push the OSTree repo to gh-pages
 
 jobs:
   build-flatpak:
@@ -86,3 +86,34 @@ jobs:
           name: blackthorn-launcher-flatpak-${{ steps.release.outputs.tag }}
           path: Blackthorn-Launcher-*.flatpak
           if-no-files-found: error
+
+      - name: Publish OSTree repository to GitHub Pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Generate static deltas so updates download only the diff
+          flatpak build-update-repo --generate-static-deltas repo
+
+          # Write a .flatpakrepo descriptor for easy remote-add
+          cat > blackthorn.flatpakrepo << 'EOF'
+          [Flatpak Repo]
+          Title=Blackthorn DAOC
+          Url=https://kabouik.github.io/blackthorn-flatpak/repo/
+          Description=Community Flatpak packaging for the Blackthorn DAOC launcher
+          EOF
+
+          # Bundle repo + descriptor into a pages/ dir and force-push to gh-pages
+          mkdir pages
+          cp -r repo pages/repo
+          cp blackthorn.flatpakrepo pages/
+
+          cd pages
+          git init
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -b gh-pages
+          git add -A
+          git commit -m "Flatpak repo: ${{ steps.release.outputs.tag }}"
+          git push --force \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            gh-pages
