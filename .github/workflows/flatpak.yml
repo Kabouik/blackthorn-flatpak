@@ -84,7 +84,7 @@ jobs:
         run: |
           flatpak build-update-repo repo
           flatpak build-bundle \
-            --origin=https://kabouik.github.io/blackthorn-flatpak/repo/ \
+            --repo-url=https://kabouik.github.io/blackthorn-flatpak/repo/ \
             repo \
             "Blackthorn-Launcher-${{ steps.release.outputs.tag }}-linux-x64.flatpak" \
             com.blackthorn.daoc.Launcher master
