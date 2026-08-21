@@ -66,6 +66,7 @@ finish-args:
   - --filesystem=home
   - --filesystem=/mnt
   - --filesystem=/media
+  - --filesystem=/tmp
   - --filesystem=/run/media
   - --allow=multiarch
   - --talk-name=org.freedesktop.Notifications
