@@ -80,12 +80,38 @@ jobs:
           manifest-path: upstream/flatpak/com.blackthorn.daoc.Launcher.yml
           cache-key: flatpak-builder-${{ steps.release.outputs.tag }}
 
+      - name: Rebuild bundle with origin for auto-remote setup
+        run: |
+          flatpak build-update-repo repo
+          flatpak build-bundle \
+            --repo-url=https://kabouik.github.io/blackthorn-flatpak/repo/ \
+            repo \
+            "Blackthorn-Launcher-${{ steps.release.outputs.tag }}-linux-x64.flatpak" \
+            com.blackthorn.daoc.Launcher master
+
       - name: Upload Flatpak bundle
         uses: actions/upload-artifact@v4
         with:
           name: blackthorn-launcher-flatpak-${{ steps.release.outputs.tag }}
           path: Blackthorn-Launcher-*.flatpak
           if-no-files-found: error
+
+      - name: Publish bundle to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          BUNDLE="Blackthorn-Launcher-${TAG}-linux-x64.flatpak"
+          gh release create "$TAG" \
+            --title "Blackthorn Launcher ${TAG}" \
+            --notes "Linux Flatpak bundle.
+
+          Install with:
+            flatpak install ${BUNDLE}
+
+          The Blackthorn remote is configured automatically for future updates via flatpak update." \
+            "$BUNDLE" \
+          || gh release upload "$TAG" "$BUNDLE" --clobber
 
       - name: Publish OSTree repository to GitHub Pages
         env:
