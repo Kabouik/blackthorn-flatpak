@@ -55,7 +55,7 @@ finish-args:
   - --filesystem=/media
   - --filesystem=/tmp
   - --filesystem=/run/media
-  - --allow=multiarch
+  - --talk-name=org.freedesktop.Flatpak
   - --talk-name=org.freedesktop.Notifications
   - --env=ELECTRON_OZONE_PLATFORM_HINT=auto
 
@@ -66,16 +66,17 @@ cleanup:
   - '*.a'
 
 modules:
-  - name: wine
+  - name: wine-proxy
     buildsystem: simple
     build-commands:
-      - install -d /app/wine
-      - cp -ra . /app/wine
+      - install -Dm755 wine.sh /app/bin/wine
+      - install -Dm755 wine.sh /app/bin/wineserver
+      - install -Dm755 wine.sh /app/bin/wineboot
     sources:
-      - type: archive
-        url: https://github.com/Kron4ek/Wine-Builds/releases/download/11.0/wine-11.0-amd64.tar.xz
-        sha256: 632f2c8e9150841c26d277000e76b82c425cd4564bfb050780705b9d37b2567f
-        strip-components: 1
+      - type: script
+        dest-filename: wine.sh
+        commands:
+          - exec flatpak-spawn --host "$(basename "$0")" "$@"
 
   - name: blackthorn-launcher
     buildsystem: simple
