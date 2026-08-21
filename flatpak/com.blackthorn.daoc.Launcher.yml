@@ -46,6 +46,10 @@ finish-args:
   - --share=network           # patch downloads, SignalR hub
   - --device=dri
   - --socket=pulseaudio
+  # btui_cef_host is a native Linux CEF binary spawned directly inside the
+  # sandbox. CEF needs user namespaces (CLONE_NEWUSER) for its own internal
+  # renderer sandbox. --allow=devel permits this without giving full root.
+  - --allow=devel
   # The game client path is set by the user in launcher settings and is not
   # known at package time. Wine prefixes live under $HOME by default.
   # Users with a game install outside $HOME can add a per-user override via
