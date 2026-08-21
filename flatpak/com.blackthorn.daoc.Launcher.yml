@@ -39,6 +39,19 @@ build-options:
     # Playwright downloads Chromium during npm install; we don't need it here
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
 
+add-extensions:
+  org.freedesktop.Platform.Compat.i386:
+    directory: lib/i386-linux-gnu
+    version: '24.08'
+
+  org.freedesktop.Platform.GL32:
+    directory: lib/i386-linux-gnu/GL
+    version: '1.4'
+    versions: 24.08;1.4
+    subdirectories: true
+    no-autodownload: true
+    autodelete: false
+
 finish-args:
   - --socket=x11
   - --socket=wayland
@@ -70,6 +83,7 @@ modules:
     build-commands:
       - install -d /app/wine
       - cp -ra . /app/wine
+      - install -d /app/lib/i386-linux-gnu
     sources:
       - type: archive
         url: https://github.com/GloriousEggroll/wine-ge-custom/releases/download/GE-Proton8-26/wine-lutris-GE-Proton8-26-x86_64.tar.xz
