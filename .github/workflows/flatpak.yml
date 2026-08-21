@@ -1,6 +1,7 @@
 name: Build Flatpak
 
 # Triggers:
+#   - Push to main: rebuilds on any packaging change (flatpak/ directory).
 #   - Daily schedule: checks daoc-blackthorn/launcher for a new release and
 #     builds if the latest tag has changed since the previous run.
 #   - workflow_dispatch: build a specific tag (or "latest" if left blank).
@@ -9,6 +10,12 @@ name: Build Flatpak
 #   LAUNCHER_TOKEN — a PAT with read access to daoc-blackthorn/launcher.
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'flatpak/**'
+      - '.github/workflows/flatpak.yml'
   schedule:
     - cron: '0 6 * * *'
   workflow_dispatch:
