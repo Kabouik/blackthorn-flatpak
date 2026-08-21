@@ -91,8 +91,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Generate static deltas so updates download only the diff
-          flatpak build-update-repo --generate-static-deltas repo
+          flatpak build-update-repo repo
 
           # Write a .flatpakrepo descriptor for easy remote-add
           cat > blackthorn.flatpakrepo << 'EOF'
