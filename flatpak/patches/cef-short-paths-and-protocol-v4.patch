@@ -1,0 +1,99 @@
+--- a/node-src/services/cef-coordinator.ts
++++ b/node-src/services/cef-coordinator.ts
+@@ -50,6 +50,10 @@
+   bridgeRoot: string;
+   bridgeRegistry: string;
+   ephemeral: boolean;
++  /** Linux: TMPDIR-based log path to avoid buffer overflow in btui_cef_host with long wine prefix paths */
++  cefLogPath?: string;
++  /** Linux: TMPDIR-based cache path to avoid buffer overflow in btui_cef_host with long wine prefix paths */
++  cefCachePath?: string;
+ }
+ 
+ export interface CefRuntimeManifest {
+@@ -121,7 +125,7 @@
+       throw new Error(
+         `CEF runtime manifest targets ${manifest.platform ?? "unknown"}/${manifest.architecture ?? "unknown"}, expected ${expectedTarget}.`,
+       );
+-    if (manifest.protocolVersion !== 3 || manifest.registryVersion !== 6)
++    if ((manifest.protocolVersion !== 3 && manifest.protocolVersion !== 4) || manifest.registryVersion !== 6)
+       throw new Error(
+         "The in-game UI files are incompatible with this launcher version. Please contact a Blackthorn developer and mention a CEF runtime version mismatch.",
+       );
+@@ -169,12 +173,18 @@
+   );
+   const nativeRoot = path.join(prefix, "drive_c", relative);
+   const bridgeRoot = `C:\\${relative.split(path.sep).join("\\")}`;
++  const tmpdir = environment.TMPDIR || "/tmp";
++  const shortId = options.sessionId.slice(0, 8);
++  const cefLogPath = path.join(tmpdir, `btui-cef-${shortId}.log`);
++  const cefCachePath = path.join(tmpdir, `btui-cef-${shortId}-cache`);
+   return {
+     nativeRoot,
+     nativeRegistry: path.join(nativeRoot, "btui-mvp.registry"),
+     bridgeRoot,
+     bridgeRegistry: `${bridgeRoot}\\btui-mvp.registry`,
+     ephemeral: true,
++    cefLogPath,
++    cefCachePath,
+   };
+ }
+ 
+@@ -306,8 +316,8 @@
+     args: [
+       ...(options.disableGpu ? ["--disable-gpu"] : []),
+       `--registry=${registry}`,
+-      `--cache-path=${path.join(session.nativeRoot, "cef-cache")}`,
+-      `--log-path=${path.join(session.nativeRoot, "btui-cef-native.log")}`,
++      `--cache-path=${session.cefCachePath ?? path.join(session.nativeRoot, "cef-cache")}`,
++      `--log-path=${session.cefLogPath ?? path.join(session.nativeRoot, "btui-cef-native.log")}`,
+       `--bridge-surface-root=${session.bridgeRoot}`,
+       ...windowsToPreload.map(
+         (window) =>
+--- a/node-src/services/cef-lifecycle.ts
++++ b/node-src/services/cef-lifecycle.ts
+@@ -693,7 +693,7 @@
+       sessionBridgeRoot: this.session.bridgeRoot,
+       registryNativePath: this.session.nativeRegistry,
+       registryBridgePath: this.session.bridgeRegistry,
+-      cefNativeLogPath: path.join(
++      cefNativeLogPath: this.session.cefLogPath ?? path.join(
+         this.session.nativeRoot,
+         "btui-cef-native.log",
+       ),
+@@ -705,7 +705,7 @@
+       this.recordError(error),
+     );
+     void this.streamDiagnosticFile(
+-      path.join(this.session.nativeRoot, "btui-cef-native.log"),
++      this.session.cefLogPath ?? path.join(this.session.nativeRoot, "btui-cef-native.log"),
+       "[CEF native]",
+       this.controller.signal,
+     ).catch((error) => this.recordError(error));
+@@ -1020,7 +1020,7 @@
+           signature: redacted,
+           note: "CEF child processes inherit this stderr pipe; correlate with the native CEF log and renderer termination event for the failing process type.",
+           cefNativeLogPath: this.session
+-            ? path.join(this.session.nativeRoot, "btui-cef-native.log")
++            ? (this.session.cefLogPath ?? path.join(this.session.nativeRoot, "btui-cef-native.log"))
+             : undefined,
+           portableCrashReportPath: crashReportPath,
+           optionalSystemdCoreCommands:
+@@ -1037,7 +1037,7 @@
+               target: this.target(),
+               runtime: this.runtime,
+               signature: redacted,
+-              cefNativeLogPath: path.join(
++              cefNativeLogPath: this.session!.cefLogPath ?? path.join(
+                 this.session!.nativeRoot,
+                 "btui-cef-native.log",
+               ),
+@@ -1064,7 +1064,7 @@
+     signalName: NodeJS.Signals | null,
+   ): Promise<void> {
+     const diagnosticPath = this.session
+-      ? path.join(this.session.nativeRoot, "btui-cef-native.log")
++      ? (this.session.cefLogPath ?? path.join(this.session.nativeRoot, "btui-cef-native.log"))
+       : undefined;
+     let cefLogTail = "";
+     if (diagnosticPath) {
