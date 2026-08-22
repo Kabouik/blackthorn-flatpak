@@ -186,29 +186,43 @@ jobs:
           echo "bundle=$BUNDLE" >> "$GITHUB_OUTPUT"
         id: build
 
-      - name: Publish OSTree repo to Cloudflare R2
-        if: steps.release.outputs.skip != 'true' && vars.FLATPAK_REPO_URL != ''
+      - name: Publish OSTree repo to Codeberg Pages
+        if: steps.release.outputs.skip != 'true'
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          REPO_URL: ${{ vars.FLATPAK_REPO_URL }}
+          FORGEJO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          OUR_TAG="${{ steps.release.outputs.our_tag }}"
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          REPO="${GITHUB_REPOSITORY##*/}"
+          PAGES_URL="https://${OWNER}.codeberg.page/${REPO}"
+
           flatpak build-update-repo --prune --prune-depth=2 \
             --generate-static-deltas repo
-          printf '[Flatpak Repo]\nTitle=Blackthorn DAOC\nUrl=%s/repo/\nDescription=Community Flatpak packaging for the Blackthorn DAOC launcher\n' \
-            "$REPO_URL" > blackthorn.flatpakrepo
-          aws s3 sync repo s3://blackthorn-flatpak/repo \
-            --endpoint-url "$R2_ENDPOINT" --delete --no-progress
-          aws s3 cp blackthorn.flatpakrepo s3://blackthorn-flatpak/blackthorn.flatpakrepo \
-            --endpoint-url "$R2_ENDPOINT"
 
-      - name: Re-bundle with repo URL for flatpak update support
-        if: steps.release.outputs.skip != 'true' && vars.FLATPAK_REPO_URL != ''
+          printf '[Flatpak Repo]\nTitle=Blackthorn DAOC\nUrl=%s/repo/\nDescription=Community Flatpak packaging for the Blackthorn DAOC launcher\n' \
+            "$PAGES_URL" > repo/blackthorn.flatpakrepo
+
+          # Force-push an orphan commit to pages branch so history doesn't
+          # accumulate large binary blobs across releases.
+          cd repo
+          git init
+          git config user.email "actions@codeberg.org"
+          git config user.name "Forgejo Actions"
+          git checkout -b pages
+          git add -A
+          git commit -m "OSTree repo for ${OUR_TAG}"
+          git push --force \
+            "https://x-token:${FORGEJO_TOKEN}@codeberg.org/${GITHUB_REPOSITORY}.git" \
+            pages
+
+          echo "pages_url=$PAGES_URL" >> "$GITHUB_OUTPUT"
+        id: pages
+
+      - name: Re-bundle with Pages repo URL for flatpak update support
+        if: steps.release.outputs.skip != 'true'
         run: |
           flatpak build-bundle \
-            --repo-url="${{ vars.FLATPAK_REPO_URL }}/repo/" \
+            --repo-url="${{ steps.pages.outputs.pages_url }}/repo/" \
             repo \
             "Blackthorn-Launcher-${{ steps.release.outputs.our_tag }}-linux-x64.flatpak" \
             com.blackthorn.daoc.Launcher
