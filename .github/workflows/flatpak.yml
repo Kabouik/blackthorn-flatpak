@@ -223,12 +223,26 @@ jobs:
           OUR_TAG="${{ steps.release.outputs.our_tag }}"
           UPSTREAM_TAG="${{ steps.release.outputs.upstream_tag }}"
           BUNDLE="Blackthorn-Launcher-${OUR_TAG}-linux-x64.flatpak"
+          REPO_URL="${{ vars.FLATPAK_REPO_URL }}"
+          if [ -n "$REPO_URL" ]; then
+            INSTALL_NOTES="**Via repository (recommended):**
+\`\`\`
+flatpak remote-add --user blackthorn ${REPO_URL}/blackthorn.flatpakrepo
+flatpak install --user blackthorn com.blackthorn.daoc.Launcher
+\`\`\`
+Then use \`flatpak update\` to stay current.
+
+**Via bundle:**"
+          else
+            INSTALL_NOTES="**Install:**"
+          fi
+
           gh release create "$OUR_TAG" \
             --title "Blackthorn Launcher ${UPSTREAM_TAG} (Flatpak ${OUR_TAG##*-})" \
             --notes "Flatpak packaging of upstream launcher ${UPSTREAM_TAG}.
 
-          Install:
-            flatpak install --user ${BUNDLE}
-
-          To update, download and re-run \`flatpak install --user\` with the new bundle." \
+          ${INSTALL_NOTES}
+          \`\`\`
+          flatpak install --user ${BUNDLE}
+          \`\`\`" \
             "$BUNDLE"
