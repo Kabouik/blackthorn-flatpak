@@ -8,6 +8,10 @@ export XDG_CONFIG_HOME="${HOME}/.config"
 export XDG_DATA_HOME="${HOME}/.local/share"
 export XDG_CACHE_HOME="${HOME}/.cache"
 
+# LANG and LC_* are passed through automatically by Flatpak's locale
+# passthrough and must not be overridden here — Wine needs them to select
+# the correct keyboard layout DLL and codepage for dead key composition.
+
 # Redirect output to a log file. Writing to a closed Flatpak pipe on exit
 # triggers write EIO in Electron's uncaughtException handler, which shows a
 # spurious error dialog. A real file is not subject to EIO on shutdown.
