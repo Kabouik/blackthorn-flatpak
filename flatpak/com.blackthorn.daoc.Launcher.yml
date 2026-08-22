@@ -76,6 +76,11 @@ finish-args:
   - --filesystem=/run/media
   - --talk-name=org.freedesktop.Notifications
   - --env=ELECTRON_OZONE_PLATFORM_HINT=auto
+  # Prevent Wine from trying to connect to the host IM daemon (IBus/Fcitx),
+  # whose socket is outside the sandbox. XOpenIM() would fail silently and
+  # break dead key input. XWayland delivers pre-composed characters via XKB,
+  # so dead keys work without an external IM for Western European layouts.
+  - --env=XMODIFIERS=@im=none
 
 cleanup:
   - /include
@@ -87,8 +92,10 @@ modules:
   - name: wine
     buildsystem: simple
     build-commands:
-      - tar xf wine-11.0-amd64-wow64.tar.xz
-      - mv wine-11.0-amd64-wow64 /app/wine
+      - tar xf wine-11.0-staging-amd64-wow64.tar.xz
+      - mv wine-11.0-staging-amd64-wow64 /app/wine
+      # Strip headers, desktop files and man pages — not needed at runtime (~63 MB)
+      - rm -rf /app/wine/include /app/wine/share/applications /app/wine/share/man
       # Mount-point directories for i386 compat extensions
       - install -d /app/lib/i386-linux-gnu
       - install -d /app/lib/i386-linux-gnu/GL
@@ -96,8 +103,8 @@ modules:
       - install -Dm755 winecfg.sh /app/bin/winecfg
     sources:
       - type: file
-        url: https://github.com/Kron4ek/Wine-Builds/releases/download/11.0/wine-11.0-amd64-wow64.tar.xz
-        sha256: 39574efa1132c3ca0d5c77dd2eddbe4a49cca0d6cc2c290ff4924493a1c40314
+        url: https://github.com/Kron4ek/Wine-Builds/releases/download/11.0/wine-11.0-staging-amd64-wow64.tar.xz
+        sha256: e6538a417dd2e7f738ad77addf74bfd9e45c9d970653674f93bde2df29055f2f
       - type: script
         dest-filename: winecfg.sh
         commands:
