@@ -155,8 +155,34 @@ build:
         build-dir \
         upstream/flatpak/com.blackthorn.daoc.Launcher.yml
 
-    # ── Create bundle ─────────────────────────────────────────────────────
-    - flatpak build-bundle repo "$BUNDLE" com.blackthorn.daoc.Launcher stable
+    # ── Publish OSTree repo to Cloudflare R2 (if secrets are set) ───────────
+    # Required CI/CD variables: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
+    # CF_ACCOUNT_ID, and FLATPAK_REPO_URL (variable, public URL of R2 bucket).
+    - |
+      if [ -n "${R2_ACCESS_KEY_ID:-}" ]; then
+        pip install --quiet awscli
+        flatpak build-update-repo --prune --prune-depth=2 \
+          --generate-static-deltas repo
+        printf '[Flatpak Repo]\nTitle=Blackthorn DAOC\nUrl=%s/repo/\nDescription=Community Flatpak packaging for the Blackthorn DAOC launcher\n' \
+          "$FLATPAK_REPO_URL" > blackthorn.flatpakrepo
+        AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" \
+        AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
+        AWS_DEFAULT_REGION=auto \
+          aws s3 sync repo s3://blackthorn-flatpak/repo \
+            --endpoint-url "https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+            --delete --no-progress
+        AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" \
+        AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
+        AWS_DEFAULT_REGION=auto \
+          aws s3 cp blackthorn.flatpakrepo s3://blackthorn-flatpak/blackthorn.flatpakrepo \
+            --endpoint-url "https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com"
+        flatpak build-bundle \
+          --repo-url="${FLATPAK_REPO_URL}/repo/" \
+          repo "$BUNDLE" com.blackthorn.daoc.Launcher stable
+      else
+        echo "R2 secrets not set — skipping OSTree repo publish. Bundle will not embed a repo URL."
+        flatpak build-bundle repo "$BUNDLE" com.blackthorn.daoc.Launcher stable
+      fi
 
     # ── Create GitLab release ─────────────────────────────────────────────
     - |
