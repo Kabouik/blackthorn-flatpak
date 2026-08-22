@@ -22,7 +22,6 @@ workflow:
 
 stages:
   - build
-  - deploy
 
 build:
   stage: build
@@ -33,7 +32,7 @@ build:
     INPUT_TAG: ""
   before_script:
     - apt-get update -q
-    - apt-get install -y curl jq git python3-pip unzip
+    - apt-get install -y curl jq git python3-pip
   script:
     - set -euo pipefail
 
@@ -66,20 +65,10 @@ build:
       echo "OUR_TAG=$OUR_TAG  BUNDLE=$BUNDLE"
 
     # ── Skip if already published (schedule / push only) ──────────────────
-    # Re-deploy previous pages artifact so the site stays live.
     - |
       if [[ "$CI_PIPELINE_SOURCE" == "schedule" || "$CI_PIPELINE_SOURCE" == "push" ]] \
           && (( LAST_REV > 0 )); then
         echo "Already published ${UPSTREAM_TAG}-${LAST_REV}, nothing to build."
-        mkdir -p public
-        PREV_URL="$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/artifacts/$CI_DEFAULT_BRANCH/download?job=pages"
-        if curl -sfL -H "Authorization: Bearer $CI_JOB_TOKEN" "$PREV_URL" -o prev.zip 2>/dev/null; then
-          unzip -q prev.zip -d prev
-          cp -r prev/public/. public/
-          echo "Previous pages artifact restored."
-        else
-          echo "No previous pages artifact found — pages will be empty this run."
-        fi
         exit 0
       fi
 
@@ -166,24 +155,8 @@ build:
         build-dir \
         upstream/flatpak/com.blackthorn.daoc.Launcher.yml
 
-    # ── Populate public/ (OSTree repo → GitLab Pages) ────────────────────
-    - |
-      PAGES_URL="$CI_PAGES_URL"
-
-      flatpak build-update-repo --prune --prune-depth=2 \
-        --generate-static-deltas repo
-
-      mkdir -p public/repo
-      cp -r repo/. public/repo/
-
-      printf '[Flatpak Repo]\nTitle=Blackthorn DAOC\nUrl=%s/repo/\nDescription=Community Flatpak packaging for the Blackthorn DAOC launcher\n' \
-        "$PAGES_URL" > public/blackthorn.flatpakrepo
-
-      flatpak build-bundle \
-        --repo-url="$PAGES_URL/repo/" \
-        repo \
-        "$BUNDLE" \
-        com.blackthorn.daoc.Launcher stable
+    # ── Create bundle ─────────────────────────────────────────────────────
+    - flatpak build-bundle repo "$BUNDLE" com.blackthorn.daoc.Launcher stable
 
     # ── Create GitLab release ─────────────────────────────────────────────
     - |
@@ -215,17 +188,4 @@ build:
   artifacts:
     paths:
       - "Blackthorn-Launcher-*.flatpak"
-      - public/
-    expire_in: 7 days
-    when: always  # Upload even on the skip path so pages stays live
-
-pages:
-  stage: deploy
-  needs:
-    - job: build
-      artifacts: true
-  script:
-    - echo "Deploying OSTree repo to $CI_PAGES_URL"
-  artifacts:
-    paths:
-      - public/
+    expire_in: 30 days
