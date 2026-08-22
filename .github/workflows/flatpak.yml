@@ -3,8 +3,12 @@ name: Build Flatpak
 # Triggers:
 #   - Push to main: rebuilds on any packaging change (flatpak/ directory).
 #   - Daily schedule: checks daoc-blackthorn/launcher for a new release and
-#     builds if the latest tag has changed since the previous run.
-#   - workflow_dispatch: build a specific tag (or "latest" if left blank).
+#     skips if the latest upstream tag already has a packaging release here.
+#   - workflow_dispatch: build a specific tag (or latest). Always creates a
+#     new packaging revision even if the upstream tag was already packaged.
+#
+# Release tags in this repo follow the pattern vX.Y.Z-N where vX.Y.Z is the
+# upstream launcher tag and N is the packaging revision (auto-incremented).
 #
 # Required secrets:
 #   LAUNCHER_TOKEN — a PAT with read access to daoc-blackthorn/launcher.
@@ -19,16 +23,16 @@ on:
       - 'flatpak/**'
       - '.github/workflows/flatpak.yml'
   schedule:
-    - cron: '0 6 * * *'
+    - cron: '0 */4 * * *'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Upstream release tag to build (empty = latest)'
+        description: 'Upstream launcher tag to build (empty = latest)'
         required: false
         default: ''
 
 permissions:
-  contents: write   # needed to create and upload GitHub Releases
+  contents: write
 
 jobs:
   build-flatpak:
@@ -39,39 +43,103 @@ jobs:
       - name: Check out packaging repo
         uses: actions/checkout@v4
 
-      - name: Resolve upstream release tag
+      - name: Resolve upstream tag and packaging revision
         id: release
         env:
           GH_TOKEN: ${{ secrets.LAUNCHER_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+
           if [ -n "${{ inputs.tag }}" ]; then
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            UPSTREAM_TAG="${{ inputs.tag }}"
           else
-            TAG=$(gh release view --repo daoc-blackthorn/launcher \
-                    --json tagName --jq .tagName)
-            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+            UPSTREAM_TAG=$(gh release view --repo daoc-blackthorn/launcher \
+              --json tagName --jq .tagName)
           fi
 
-      - name: Check out launcher source at ${{ steps.release.outputs.tag }}
+          # Find the highest existing packaging revision for this upstream tag.
+          LAST_REV=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+            --json tagName \
+            --jq "[.[] | .tagName | select(startswith(\"${UPSTREAM_TAG}-\")) \
+                  | ltrimstr(\"${UPSTREAM_TAG}-\") | tonumber] | max // 0")
+          NEXT_REV=$(( LAST_REV + 1 ))
+          OUR_TAG="${UPSTREAM_TAG}-${NEXT_REV}"
+
+          # On schedule/push: skip if this upstream tag already has a packaging release.
+          EVENT="${{ github.event_name }}"
+          if [[ "$EVENT" == "schedule" || "$EVENT" == "push" ]] && (( LAST_REV > 0 )); then
+            echo "Already published ${UPSTREAM_TAG}-${LAST_REV}, nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "upstream_tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+          echo "our_tag=$OUR_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Check out launcher source at ${{ steps.release.outputs.upstream_tag }}
+        if: steps.release.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           repository: daoc-blackthorn/launcher
-          ref: ${{ steps.release.outputs.tag }}
+          ref: ${{ steps.release.outputs.upstream_tag }}
           token: ${{ secrets.LAUNCHER_TOKEN }}
           path: upstream
 
       - name: Overlay packaging files onto upstream source
+        if: steps.release.outputs.skip != 'true'
         run: cp -r flatpak upstream/flatpak
 
-      - name: Stamp metainfo with release version and date
+      - name: Resolve CEF runtime version from CDN and patch manifest
+        if: steps.release.outputs.skip != 'true'
         run: |
-          TAG="${{ steps.release.outputs.tag }}"
-          VERSION="${TAG#v}"   # strip leading v if present
+          python3 - upstream/flatpak/com.blackthorn.daoc.Launcher.yml << 'PY'
+          import json, re, sys, urllib.request
+          from pathlib import Path
+
+          yml_path = Path(sys.argv[1])
+          cef = json.loads(urllib.request.urlopen(
+              "https://client.blackthorn-daoc.com/cef/linux-x64/manifest.json"
+          ).read())
+
+          version   = cef["version"]
+          sha256    = cef["sha256"]
+          url       = cef["archiveUrl"]
+          archive   = f"btui-cef-linux-x64-{version}.zip"
+          embedded  = json.dumps({
+              "version": version, "platform": "linux", "architecture": "x64",
+              "protocolVersion": cef["protocolVersion"],
+              "registryVersion": cef["registryVersion"],
+              "archiveUrl": url, "archiveFile": archive, "sha256": sha256,
+          })
+
+          yml = yml_path.read_text()
+          yml = re.sub(r'cp btui-cef-linux-x64-[\d.]+\.zip', f'cp {archive}', yml)
+          yml = re.sub(r"printf '%s\\n' '\{[^']*\}'",
+                       f"printf '%s\\n' '{embedded}'", yml)
+          yml = re.sub(
+              r'(url: https://client\.blackthorn-daoc\.com/cef/linux-x64/)btui-cef-linux-x64-[\d.]+\.zip',
+              f'\\g<1>{archive}', yml)
+          # Replace sha256 only in the type:file source block (after the cef url line)
+          yml = re.sub(
+              r'(url: https://client\.blackthorn-daoc\.com/cef/linux-x64/btui-cef-linux-x64-[\d.]+\.zip\n\s+sha256: )[a-f0-9]{64}',
+              f'\\g<1>{sha256}', yml)
+          yml_path.write_text(yml)
+          print(f"CEF {version} (protocol {cef['protocolVersion']}, registry {cef['registryVersion']})")
+          PY
+
+      - name: Stamp metainfo with upstream version and date
+        if: steps.release.outputs.skip != 'true'
+        run: |
+          TAG="${{ steps.release.outputs.upstream_tag }}"
+          VERSION="${TAG#v}"
           DATE="$(date -u +%F)"
           sed -i "s|<release version=\"[^\"]*\" date=\"[^\"]*\"/>|<release version=\"${VERSION}\" date=\"${DATE}\"/>|" \
             upstream/flatpak/com.blackthorn.daoc.Launcher.metainfo.xml
 
       - name: Generate npm offline sources for Flatpak
+        if: steps.release.outputs.skip != 'true'
         run: |
           pip install --quiet \
             "git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node"
@@ -79,6 +147,7 @@ jobs:
             -o upstream/flatpak/generated-sources.json
 
       - name: Install flatpak and pre-install runtimes as root
+        if: steps.release.outputs.skip != 'true'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y flatpak flatpak-builder appstream
@@ -91,17 +160,15 @@ jobs:
             org.electronjs.Electron2.BaseApp//24.08
 
       - name: Build Flatpak
+        if: steps.release.outputs.skip != 'true'
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          bundle: Blackthorn-Launcher-${{ steps.release.outputs.tag }}-linux-x64.flatpak
+          bundle: Blackthorn-Launcher-${{ steps.release.outputs.our_tag }}-linux-x64.flatpak
           manifest-path: upstream/flatpak/com.blackthorn.daoc.Launcher.yml
-          cache-key: flatpak-builder-${{ steps.release.outputs.tag }}
+          cache-key: flatpak-builder-${{ steps.release.outputs.upstream_tag }}
 
       - name: Publish OSTree repo to Cloudflare R2
-        # Requires secrets: CF_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
-        # Bucket must have public access enabled; set FLATPAK_REPO_URL to its r2.dev URL.
-        # If these secrets are absent the step is skipped (bundle-only install still works).
-        if: vars.FLATPAK_REPO_URL != ''
+        if: steps.release.outputs.skip != 'true' && vars.FLATPAK_REPO_URL != ''
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -119,35 +186,36 @@ jobs:
             --endpoint-url "$R2_ENDPOINT"
 
       - name: Re-bundle with repo URL for flatpak update support
-        if: vars.FLATPAK_REPO_URL != ''
+        if: steps.release.outputs.skip != 'true' && vars.FLATPAK_REPO_URL != ''
         run: |
           flatpak build-bundle \
             --repo-url="${{ vars.FLATPAK_REPO_URL }}/repo/" \
             repo \
-            "Blackthorn-Launcher-${{ steps.release.outputs.tag }}-linux-x64.flatpak" \
+            "Blackthorn-Launcher-${{ steps.release.outputs.our_tag }}-linux-x64.flatpak" \
             com.blackthorn.daoc.Launcher
 
       - name: Upload Flatpak bundle
+        if: steps.release.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: blackthorn-launcher-flatpak-${{ steps.release.outputs.tag }}
+          name: blackthorn-launcher-flatpak-${{ steps.release.outputs.our_tag }}
           path: Blackthorn-Launcher-*.flatpak
           if-no-files-found: error
 
       - name: Publish bundle to GitHub Releases
+        if: steps.release.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ steps.release.outputs.tag }}"
-          BUNDLE="Blackthorn-Launcher-${TAG}-linux-x64.flatpak"
-          gh release create "$TAG" \
-            --title "Blackthorn Launcher ${TAG}" \
-            --notes "Linux Flatpak bundle.
+          OUR_TAG="${{ steps.release.outputs.our_tag }}"
+          UPSTREAM_TAG="${{ steps.release.outputs.upstream_tag }}"
+          BUNDLE="Blackthorn-Launcher-${OUR_TAG}-linux-x64.flatpak"
+          gh release create "$OUR_TAG" \
+            --title "Blackthorn Launcher ${UPSTREAM_TAG} (Flatpak ${OUR_TAG##*-})" \
+            --notes "Flatpak packaging of upstream launcher ${UPSTREAM_TAG}.
 
-          Install with:
-            flatpak install ${BUNDLE}
+          Install:
+            flatpak install --user ${BUNDLE}
 
-          To update, download and re-run \`flatpak install\` with the new bundle." \
-            "$BUNDLE" \
-          || gh release upload "$TAG" "$BUNDLE" --clobber
-
+          To update, download and re-run \`flatpak install --user\` with the new bundle." \
+            "$BUNDLE"
