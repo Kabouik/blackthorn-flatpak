@@ -89,6 +89,8 @@ modules:
     build-commands:
       - tar xf wine-11.0-amd64-wow64.tar.xz
       - mv wine-11.0-amd64-wow64 /app/wine
+      # Strip headers, desktop files and man pages — not needed at runtime (~63 MB)
+      - rm -rf /app/wine/include /app/wine/share/applications /app/wine/share/man
       # Mount-point directories for i386 compat extensions
       - install -d /app/lib/i386-linux-gnu
       - install -d /app/lib/i386-linux-gnu/GL
