@@ -6,8 +6,10 @@ name: Build Flatpak
 #     builds if the latest tag has changed since the previous run.
 #   - workflow_dispatch: build a specific tag (or "latest" if left blank).
 #
-# Required secret:
+# Required secrets:
 #   LAUNCHER_TOKEN — a PAT with read access to daoc-blackthorn/launcher.
+# Optional secrets/variables for Cloudflare R2 repo publishing (flatpak update support):
+#   FLATPAK_REPO_URL (variable), CF_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
 
 on:
   push:
