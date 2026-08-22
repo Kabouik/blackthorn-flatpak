@@ -143,8 +143,16 @@ jobs:
           sed -i "s|<release version=\"[^\"]*\" date=\"[^\"]*\"/>|<release version=\"${VERSION}\" date=\"${DATE}\"/>|" \
             upstream/flatpak/com.blackthorn.daoc.Launcher.metainfo.xml
 
-      - name: Generate npm offline sources for Flatpak
+      - name: Cache npm offline sources
         if: steps.release.outputs.skip != 'true'
+        id: sources-cache
+        uses: actions/cache@v4
+        with:
+          path: upstream/flatpak/generated-sources.json
+          key: npm-sources-${{ hashFiles('upstream/package-lock.json') }}
+
+      - name: Generate npm offline sources for Flatpak
+        if: steps.release.outputs.skip != 'true' && steps.sources-cache.outputs.cache-hit != 'true'
         run: |
           pip install --quiet \
             "git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node"
