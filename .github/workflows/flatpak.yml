@@ -26,7 +26,7 @@ on:
         default: ''
 
 permissions:
-  contents: write   # needed to push the OSTree repo to gh-pages
+  contents: write   # needed to create and upload GitHub Releases
 
 jobs:
   build-flatpak:
@@ -61,6 +61,14 @@ jobs:
       - name: Overlay packaging files onto upstream source
         run: cp -r flatpak upstream/flatpak
 
+      - name: Stamp metainfo with release version and date
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          VERSION="${TAG#v}"   # strip leading v if present
+          DATE="$(date -u +%F)"
+          sed -i "s|<release version=\"[^\"]*\" date=\"[^\"]*\"/>|<release version=\"${VERSION}\" date=\"${DATE}\"/>|" \
+            upstream/flatpak/com.blackthorn.daoc.Launcher.metainfo.xml
+
       - name: Generate npm offline sources for Flatpak
         run: |
           pip install --quiet \
@@ -87,14 +95,39 @@ jobs:
           manifest-path: upstream/flatpak/com.blackthorn.daoc.Launcher.yml
           cache-key: flatpak-builder-${{ steps.release.outputs.tag }}
 
-      - name: Rebuild bundle with origin for auto-remote setup
+      - name: Publish OSTree repo to Cloudflare R2
+        # Requires secrets: CF_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+        # Bucket must have public access enabled; set FLATPAK_REPO_URL to its r2.dev URL.
+        # If these secrets are absent the step is skipped (bundle-only install still works).
+        if: >
+          vars.FLATPAK_REPO_URL != '' &&
+          secrets.CF_ACCOUNT_ID != '' &&
+          secrets.R2_ACCESS_KEY_ID != '' &&
+          secrets.R2_SECRET_ACCESS_KEY != ''
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          REPO_URL: ${{ vars.FLATPAK_REPO_URL }}
         run: |
-          flatpak build-update-repo repo
+          flatpak build-update-repo --prune --prune-depth=2 \
+            --generate-static-deltas repo
+          printf '[Flatpak Repo]\nTitle=Blackthorn DAOC\nUrl=%s/repo/\nDescription=Community Flatpak packaging for the Blackthorn DAOC launcher\n' \
+            "$REPO_URL" > blackthorn.flatpakrepo
+          aws s3 sync repo s3://blackthorn-flatpak/repo \
+            --endpoint-url "$R2_ENDPOINT" --delete --no-progress
+          aws s3 cp blackthorn.flatpakrepo s3://blackthorn-flatpak/blackthorn.flatpakrepo \
+            --endpoint-url "$R2_ENDPOINT"
+
+      - name: Re-bundle with repo URL for flatpak update support
+        if: vars.FLATPAK_REPO_URL != ''
+        run: |
           flatpak build-bundle \
-            --repo-url=https://kabouik.github.io/blackthorn-flatpak/repo/ \
+            --repo-url="${{ vars.FLATPAK_REPO_URL }}/repo/" \
             repo \
             "Blackthorn-Launcher-${{ steps.release.outputs.tag }}-linux-x64.flatpak" \
-            com.blackthorn.daoc.Launcher master
+            com.blackthorn.daoc.Launcher
 
       - name: Upload Flatpak bundle
         uses: actions/upload-artifact@v4
@@ -116,36 +149,7 @@ jobs:
           Install with:
             flatpak install ${BUNDLE}
 
-          The Blackthorn remote is configured automatically for future updates via flatpak update." \
+          To update, download and re-run \`flatpak install\` with the new bundle." \
             "$BUNDLE" \
           || gh release upload "$TAG" "$BUNDLE" --clobber
 
-      - name: Publish OSTree repository to GitHub Pages
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          flatpak build-update-repo repo
-
-          # Write a .flatpakrepo descriptor for easy remote-add
-          cat > blackthorn.flatpakrepo << 'EOF'
-          [Flatpak Repo]
-          Title=Blackthorn DAOC
-          Url=https://kabouik.github.io/blackthorn-flatpak/repo/
-          Description=Community Flatpak packaging for the Blackthorn DAOC launcher
-          EOF
-
-          # Bundle repo + descriptor into a pages/ dir and force-push to gh-pages
-          mkdir pages
-          cp -r repo pages/repo
-          cp blackthorn.flatpakrepo pages/
-
-          cd pages
-          git init
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
-          git checkout -b gh-pages
-          git add -A
-          git commit -m "Flatpak repo: ${{ steps.release.outputs.tag }}"
-          git push --force \
-            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            gh-pages
