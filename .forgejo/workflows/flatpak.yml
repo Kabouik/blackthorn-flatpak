@@ -1,0 +1,247 @@
+name: Build Flatpak
+
+# Triggers:
+#   - Push to main: rebuilds on any packaging change (flatpak/ directory).
+#   - Daily schedule: checks daoc-blackthorn/launcher for a new release and
+#     skips if the latest upstream tag already has a packaging release here.
+#   - workflow_dispatch: build a specific tag (or latest). Always creates a
+#     new packaging revision even if the upstream tag was already packaged.
+#
+# Release tags in this repo follow the pattern vX.Y.Z-N where vX.Y.Z is the
+# upstream launcher tag and N is the packaging revision (auto-incremented).
+#
+# Required secrets:
+#   LAUNCHER_TOKEN — a GitHub PAT with read access to daoc-blackthorn/launcher.
+# Optional secrets/variables for Cloudflare R2 repo publishing (flatpak update support):
+#   FLATPAK_REPO_URL (variable), CF_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+#
+# Runner: register a self-hosted Linux x86_64 runner (Codeberg provides none).
+# Label it "self-hosted" or update runs-on below to match your runner label.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'flatpak/**'
+      - '.forgejo/workflows/flatpak.yml'
+  schedule:
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Upstream launcher tag to build (empty = latest)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build-flatpak:
+    name: Build Flatpak
+    runs-on: self-hosted
+    timeout-minutes: 60
+    steps:
+      - name: Check out packaging repo
+        uses: actions/checkout@v4
+
+      - name: Resolve upstream tag and packaging revision
+        id: release
+        env:
+          LAUNCHER_TOKEN: ${{ secrets.LAUNCHER_TOKEN }}
+          FORGEJO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${{ inputs.tag }}" ]; then
+            UPSTREAM_TAG="${{ inputs.tag }}"
+          else
+            UPSTREAM_TAG=$(curl -sf \
+              -H "Authorization: Bearer $LAUNCHER_TOKEN" \
+              "https://api.github.com/repos/daoc-blackthorn/launcher/releases/latest" \
+              | jq -r .tag_name)
+          fi
+
+          # Find the highest existing packaging revision for this upstream tag.
+          RELEASES=$(curl -sf \
+            -H "Authorization: Bearer $FORGEJO_TOKEN" \
+            "https://codeberg.org/api/v1/repos/${GITHUB_REPOSITORY}/releases?limit=50" \
+            | jq -r '.[].tag_name // empty')
+          LAST_REV=$(printf '%s\n' "$RELEASES" \
+            | grep -E "^${UPSTREAM_TAG}-[0-9]+$" \
+            | sed "s/^${UPSTREAM_TAG}-//" \
+            | sort -n | tail -1)
+          LAST_REV="${LAST_REV:-0}"
+          NEXT_REV=$(( LAST_REV + 1 ))
+          OUR_TAG="${UPSTREAM_TAG}-${NEXT_REV}"
+
+          # On schedule/push: skip if this upstream tag already has a packaging release.
+          EVENT="${{ github.event_name }}"
+          if [[ "$EVENT" == "schedule" || "$EVENT" == "push" ]] && (( LAST_REV > 0 )); then
+            echo "Already published ${UPSTREAM_TAG}-${LAST_REV}, nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "upstream_tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+          echo "our_tag=$OUR_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Check out launcher source at ${{ steps.release.outputs.upstream_tag }}
+        if: steps.release.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: daoc-blackthorn/launcher
+          ref: ${{ steps.release.outputs.upstream_tag }}
+          token: ${{ secrets.LAUNCHER_TOKEN }}
+          path: upstream
+
+      - name: Overlay packaging files onto upstream source
+        if: steps.release.outputs.skip != 'true'
+        run: cp -r flatpak upstream/flatpak
+
+      - name: Resolve CEF runtime version from CDN and patch manifest
+        if: steps.release.outputs.skip != 'true'
+        run: |
+          python3 - upstream/flatpak/com.blackthorn.daoc.Launcher.yml << 'PY'
+          import json, re, sys, urllib.request
+          from pathlib import Path
+
+          yml_path = Path(sys.argv[1])
+          cef = json.loads(urllib.request.urlopen(
+              "https://client.blackthorn-daoc.com/cef/linux-x64/manifest.json"
+          ).read())
+
+          version   = cef["version"]
+          sha256    = cef["sha256"]
+          url       = cef["archiveUrl"]
+          archive   = f"btui-cef-linux-x64-{version}.zip"
+          embedded  = json.dumps({
+              "version": version, "platform": "linux", "architecture": "x64",
+              "protocolVersion": cef["protocolVersion"],
+              "registryVersion": cef["registryVersion"],
+              "archiveUrl": url, "archiveFile": archive, "sha256": sha256,
+          })
+
+          yml = yml_path.read_text()
+          yml = re.sub(r'cp btui-cef-linux-x64-[\d.]+\.zip',
+                       lambda _: f'cp {archive}', yml)
+          new_printf = f"printf '%s\\n' '{embedded}'"
+          yml = re.sub(r"printf '%s\\n' '\{[^']*\}'",
+                       lambda _: new_printf, yml)
+          yml = re.sub(
+              r'(url: https://client\.blackthorn-daoc\.com/cef/linux-x64/)btui-cef-linux-x64-[\d.]+\.zip',
+              lambda m: m.group(1) + archive, yml)
+          yml = re.sub(
+              r'(url: https://client\.blackthorn-daoc\.com/cef/linux-x64/btui-cef-linux-x64-[\d.]+\.zip\n\s+sha256: )[a-f0-9]{64}',
+              lambda m: m.group(1) + sha256, yml)
+          yml_path.write_text(yml)
+          print(f"CEF {version} (protocol {cef['protocolVersion']}, registry {cef['registryVersion']})")
+          PY
+
+      - name: Stamp metainfo with upstream version and date
+        if: steps.release.outputs.skip != 'true'
+        run: |
+          TAG="${{ steps.release.outputs.upstream_tag }}"
+          VERSION="${TAG#v}"
+          DATE="$(date -u +%F)"
+          sed -i "s|<release version=\"[^\"]*\" date=\"[^\"]*\"/>|<release version=\"${VERSION}\" date=\"${DATE}\"/>|" \
+            upstream/flatpak/com.blackthorn.daoc.Launcher.metainfo.xml
+
+      - name: Generate npm offline sources for Flatpak
+        if: steps.release.outputs.skip != 'true'
+        run: |
+          pip install --quiet \
+            "git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node"
+          flatpak-node-generator --no-requests-cache npm upstream/package-lock.json \
+            -o upstream/flatpak/generated-sources.json
+
+      - name: Install flatpak and pre-install runtimes as root
+        if: steps.release.outputs.skip != 'true'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y flatpak flatpak-builder appstream
+          sudo flatpak remote-add --system --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install --system -y --noninteractive \
+            org.freedesktop.Platform//24.08 \
+            org.freedesktop.Sdk//24.08 \
+            org.freedesktop.Sdk.Extension.node20//24.08 \
+            org.electronjs.Electron2.BaseApp//24.08
+
+      - name: Build Flatpak
+        if: steps.release.outputs.skip != 'true'
+        run: |
+          OUR_TAG="${{ steps.release.outputs.our_tag }}"
+          BUNDLE="Blackthorn-Launcher-${OUR_TAG}-linux-x64.flatpak"
+          flatpak-builder \
+            --repo=repo \
+            --force-clean \
+            --default-branch=stable \
+            --state-dir=.flatpak-builder \
+            build-dir \
+            upstream/flatpak/com.blackthorn.daoc.Launcher.yml
+          flatpak build-bundle repo "$BUNDLE" com.blackthorn.daoc.Launcher stable
+          echo "bundle=$BUNDLE" >> "$GITHUB_OUTPUT"
+        id: build
+
+      - name: Publish OSTree repo to Cloudflare R2
+        if: steps.release.outputs.skip != 'true' && vars.FLATPAK_REPO_URL != ''
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          REPO_URL: ${{ vars.FLATPAK_REPO_URL }}
+        run: |
+          flatpak build-update-repo --prune --prune-depth=2 \
+            --generate-static-deltas repo
+          printf '[Flatpak Repo]\nTitle=Blackthorn DAOC\nUrl=%s/repo/\nDescription=Community Flatpak packaging for the Blackthorn DAOC launcher\n' \
+            "$REPO_URL" > blackthorn.flatpakrepo
+          aws s3 sync repo s3://blackthorn-flatpak/repo \
+            --endpoint-url "$R2_ENDPOINT" --delete --no-progress
+          aws s3 cp blackthorn.flatpakrepo s3://blackthorn-flatpak/blackthorn.flatpakrepo \
+            --endpoint-url "$R2_ENDPOINT"
+
+      - name: Re-bundle with repo URL for flatpak update support
+        if: steps.release.outputs.skip != 'true' && vars.FLATPAK_REPO_URL != ''
+        run: |
+          flatpak build-bundle \
+            --repo-url="${{ vars.FLATPAK_REPO_URL }}/repo/" \
+            repo \
+            "Blackthorn-Launcher-${{ steps.release.outputs.our_tag }}-linux-x64.flatpak" \
+            com.blackthorn.daoc.Launcher
+
+      - name: Upload Flatpak bundle as artifact
+        if: steps.release.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: blackthorn-launcher-flatpak-${{ steps.release.outputs.our_tag }}
+          path: Blackthorn-Launcher-*.flatpak
+          if-no-files-found: error
+
+      - name: Publish bundle to Codeberg Releases
+        if: steps.release.outputs.skip != 'true'
+        env:
+          FORGEJO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OUR_TAG="${{ steps.release.outputs.our_tag }}"
+          UPSTREAM_TAG="${{ steps.release.outputs.upstream_tag }}"
+          BUNDLE="Blackthorn-Launcher-${OUR_TAG}-linux-x64.flatpak"
+          API="https://codeberg.org/api/v1/repos/${GITHUB_REPOSITORY}"
+
+          RELEASE_ID=$(curl -sf -X POST \
+            -H "Authorization: Bearer $FORGEJO_TOKEN" \
+            -H "Content-Type: application/json" \
+            "$API/releases" \
+            -d "{
+              \"tag_name\": \"$OUR_TAG\",
+              \"name\": \"Blackthorn Launcher ${UPSTREAM_TAG} (Flatpak ${OUR_TAG##*-})\",
+              \"body\": \"Flatpak packaging of upstream launcher ${UPSTREAM_TAG}.\n\nInstall:\n\`\`\`\nflatpak install --user ${BUNDLE}\n\`\`\`\nTo update, download and re-run \`flatpak install --user\` with the new bundle.\"
+            }" | jq -r .id)
+
+          curl -sf -X POST \
+            -H "Authorization: Bearer $FORGEJO_TOKEN" \
+            -F "attachment=@${BUNDLE}" \
+            "$API/releases/${RELEASE_ID}/assets"
