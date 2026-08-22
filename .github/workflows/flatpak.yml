@@ -114,17 +114,20 @@ jobs:
               "archiveUrl": url, "archiveFile": archive, "sha256": sha256,
           })
 
+          # Use lambdas: re.sub interprets \n in plain replacement strings as a
+          # newline, which would corrupt the printf line in the YAML.
           yml = yml_path.read_text()
-          yml = re.sub(r'cp btui-cef-linux-x64-[\d.]+\.zip', f'cp {archive}', yml)
+          yml = re.sub(r'cp btui-cef-linux-x64-[\d.]+\.zip',
+                       lambda _: f'cp {archive}', yml)
+          new_printf = f"printf '%s\\n' '{embedded}'"
           yml = re.sub(r"printf '%s\\n' '\{[^']*\}'",
-                       f"printf '%s\\n' '{embedded}'", yml)
+                       lambda _: new_printf, yml)
           yml = re.sub(
               r'(url: https://client\.blackthorn-daoc\.com/cef/linux-x64/)btui-cef-linux-x64-[\d.]+\.zip',
-              f'\\g<1>{archive}', yml)
-          # Replace sha256 only in the type:file source block (after the cef url line)
+              lambda m: m.group(1) + archive, yml)
           yml = re.sub(
               r'(url: https://client\.blackthorn-daoc\.com/cef/linux-x64/btui-cef-linux-x64-[\d.]+\.zip\n\s+sha256: )[a-f0-9]{64}',
-              f'\\g<1>{sha256}', yml)
+              lambda m: m.group(1) + sha256, yml)
           yml_path.write_text(yml)
           print(f"CEF {version} (protocol {cef['protocolVersion']}, registry {cef['registryVersion']})")
           PY
