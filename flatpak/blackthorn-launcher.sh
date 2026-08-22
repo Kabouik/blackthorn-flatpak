@@ -11,6 +11,8 @@ export XDG_CACHE_HOME="${HOME}/.cache"
 # Redirect output to a log file. Writing to a closed Flatpak pipe on exit
 # triggers write EIO in Electron's uncaughtException handler, which shows a
 # spurious error dialog. A real file is not subject to EIO on shutdown.
+mkdir -p "${XDG_CONFIG_HOME}/com.blackthorn"
+
 LOG_DIR="${XDG_CACHE_HOME}/blackthorn"
 mkdir -p "$LOG_DIR"
 exec zypak-wrapper /app/lib/launcher/blackthorn-launcher "$@" \
