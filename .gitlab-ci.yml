@@ -1,0 +1,231 @@
+# Blackthorn Launcher — Flatpak CI
+#
+# Triggers:
+#   push to main (flatpak/ or this file)  — skips if upstream already packaged
+#   schedule (every 4h)                   — same skip logic
+#   web (Run pipeline)                    — always builds; set INPUT_TAG to pin a tag
+#
+# Required CI/CD variable (Settings → CI/CD → Variables):
+#   LAUNCHER_TOKEN  — GitHub PAT with read access to daoc-blackthorn/launcher
+#
+# Free tier: 400 compute min/month. This build takes ~25 min → ~16 builds/month.
+# Pages URL (OSTree repo): https://<namespace>.gitlab.io/<project>/repo/
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - flatpak/**/*
+        - .gitlab-ci.yml
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+
+stages:
+  - build
+  - deploy
+
+build:
+  stage: build
+  image: ubuntu:22.04
+  timeout: 90m
+  variables:
+    # Set via Run Pipeline → Variables to pin a specific upstream tag.
+    INPUT_TAG: ""
+  before_script:
+    - apt-get update -q
+    - apt-get install -y curl jq git python3-pip unzip
+  script:
+    - set -euo pipefail
+
+    # ── Resolve upstream tag ───────────────────────────────────────────────
+    - |
+      if [ -n "${INPUT_TAG:-}" ]; then
+        UPSTREAM_TAG="$INPUT_TAG"
+      else
+        UPSTREAM_TAG=$(curl -sf \
+          -H "Authorization: Bearer $LAUNCHER_TOKEN" \
+          "https://api.github.com/repos/daoc-blackthorn/launcher/releases/latest" \
+          | jq -r .tag_name)
+      fi
+      echo "Upstream tag: $UPSTREAM_TAG"
+
+    # ── Find highest existing packaging revision ───────────────────────────
+    - |
+      RELEASES=$(curl -sf \
+        -H "Authorization: Bearer $CI_JOB_TOKEN" \
+        "$CI_API_V4_URL/projects/$CI_PROJECT_ID/releases?per_page=100" \
+        | jq -r '.[].tag_name // empty')
+      LAST_REV=$(printf '%s\n' "$RELEASES" \
+        | grep -E "^${UPSTREAM_TAG}-[0-9]+$" \
+        | sed "s/^${UPSTREAM_TAG}-//" \
+        | sort -n | tail -1)
+      LAST_REV="${LAST_REV:-0}"
+      NEXT_REV=$(( LAST_REV + 1 ))
+      OUR_TAG="${UPSTREAM_TAG}-${NEXT_REV}"
+      BUNDLE="Blackthorn-Launcher-${OUR_TAG}-linux-x64.flatpak"
+      echo "OUR_TAG=$OUR_TAG  BUNDLE=$BUNDLE"
+
+    # ── Skip if already published (schedule / push only) ──────────────────
+    # Re-deploy previous pages artifact so the site stays live.
+    - |
+      if [[ "$CI_PIPELINE_SOURCE" == "schedule" || "$CI_PIPELINE_SOURCE" == "push" ]] \
+          && (( LAST_REV > 0 )); then
+        echo "Already published ${UPSTREAM_TAG}-${LAST_REV}, nothing to build."
+        mkdir -p public
+        PREV_URL="$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/artifacts/$CI_DEFAULT_BRANCH/download?job=pages"
+        if curl -sfL -H "Authorization: Bearer $CI_JOB_TOKEN" "$PREV_URL" -o prev.zip 2>/dev/null; then
+          unzip -q prev.zip -d prev
+          cp -r prev/public/. public/
+          echo "Previous pages artifact restored."
+        else
+          echo "No previous pages artifact found — pages will be empty this run."
+        fi
+        exit 0
+      fi
+
+    # ── Check out upstream launcher ────────────────────────────────────────
+    - |
+      git clone --depth 1 --branch "$UPSTREAM_TAG" \
+        "https://oauth2:${LAUNCHER_TOKEN}@github.com/daoc-blackthorn/launcher.git" upstream
+
+    - cp -r flatpak upstream/flatpak
+
+    # ── Patch CEF runtime version from CDN ────────────────────────────────
+    - |
+      python3 - upstream/flatpak/com.blackthorn.daoc.Launcher.yml << 'PY'
+      import json, re, sys, urllib.request
+      from pathlib import Path
+
+      yml_path = Path(sys.argv[1])
+      cef = json.loads(urllib.request.urlopen(
+          "https://client.blackthorn-daoc.com/cef/linux-x64/manifest.json"
+      ).read())
+
+      version   = cef["version"]
+      sha256    = cef["sha256"]
+      url       = cef["archiveUrl"]
+      archive   = f"btui-cef-linux-x64-{version}.zip"
+      embedded  = json.dumps({
+          "version": version, "platform": "linux", "architecture": "x64",
+          "protocolVersion": cef["protocolVersion"],
+          "registryVersion": cef["registryVersion"],
+          "archiveUrl": url, "archiveFile": archive, "sha256": sha256,
+      })
+
+      yml = yml_path.read_text()
+      yml = re.sub(r'cp btui-cef-linux-x64-[\d.]+\.zip',
+                   lambda _: f'cp {archive}', yml)
+      new_printf = f"printf '%s\\n' '{embedded}'"
+      yml = re.sub(r"printf '%s\\n' '\{[^']*\}'",
+                   lambda _: new_printf, yml)
+      yml = re.sub(
+          r'(url: https://client\.blackthorn-daoc\.com/cef/linux-x64/)btui-cef-linux-x64-[\d.]+\.zip',
+          lambda m: m.group(1) + archive, yml)
+      yml = re.sub(
+          r'(url: https://client\.blackthorn-daoc\.com/cef/linux-x64/btui-cef-linux-x64-[\d.]+\.zip\n\s+sha256: )[a-f0-9]{64}',
+          lambda m: m.group(1) + sha256, yml)
+      yml_path.write_text(yml)
+      print(f"CEF {version} (protocol {cef['protocolVersion']}, registry {cef['registryVersion']})")
+      PY
+
+    # ── Stamp metainfo ────────────────────────────────────────────────────
+    - |
+      VERSION="${UPSTREAM_TAG#v}"
+      DATE="$(date -u +%F)"
+      sed -i "s|<release version=\"[^\"]*\" date=\"[^\"]*\"/>|<release version=\"${VERSION}\" date=\"${DATE}\"/>|" \
+        upstream/flatpak/com.blackthorn.daoc.Launcher.metainfo.xml
+
+    # ── Generate npm offline sources ──────────────────────────────────────
+    - |
+      pip install --quiet \
+        "git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node"
+      flatpak-node-generator --no-requests-cache npm upstream/package-lock.json \
+        -o upstream/flatpak/generated-sources.json
+
+    # ── Install flatpak and runtimes ──────────────────────────────────────
+    # Runners are privileged so flatpak-builder's bubblewrap sandbox works.
+    # --disable-rofiles-fuse avoids needing FUSE inside the container.
+    - |
+      apt-get install -y flatpak flatpak-builder appstream
+      flatpak remote-add --system --if-not-exists flathub \
+        https://dl.flathub.org/repo/flathub.flatpakrepo
+      flatpak install --system -y --noninteractive \
+        org.freedesktop.Platform//24.08 \
+        org.freedesktop.Sdk//24.08 \
+        org.freedesktop.Sdk.Extension.node20//24.08 \
+        org.electronjs.Electron2.BaseApp//24.08
+
+    # ── Build Flatpak ─────────────────────────────────────────────────────
+    - |
+      flatpak-builder \
+        --repo=repo \
+        --force-clean \
+        --default-branch=stable \
+        --disable-rofiles-fuse \
+        --state-dir=.flatpak-builder \
+        build-dir \
+        upstream/flatpak/com.blackthorn.daoc.Launcher.yml
+
+    # ── Populate public/ (OSTree repo → GitLab Pages) ────────────────────
+    - |
+      PAGES_URL="$CI_PAGES_URL"
+
+      flatpak build-update-repo --prune --prune-depth=2 \
+        --generate-static-deltas repo
+
+      mkdir -p public/repo
+      cp -r repo/. public/repo/
+
+      printf '[Flatpak Repo]\nTitle=Blackthorn DAOC\nUrl=%s/repo/\nDescription=Community Flatpak packaging for the Blackthorn DAOC launcher\n' \
+        "$PAGES_URL" > public/blackthorn.flatpakrepo
+
+      flatpak build-bundle \
+        --repo-url="$PAGES_URL/repo/" \
+        repo \
+        "$BUNDLE" \
+        com.blackthorn.daoc.Launcher stable
+
+    # ── Create GitLab release ─────────────────────────────────────────────
+    - |
+      # Upload bundle to project uploads
+      UPLOAD=$(curl -sf -X POST \
+        -H "Authorization: Bearer $CI_JOB_TOKEN" \
+        "$CI_API_V4_URL/projects/$CI_PROJECT_ID/uploads" \
+        -F "file=@${BUNDLE}")
+      UPLOAD_PATH=$(echo "$UPLOAD" | jq -r .full_path)
+
+      curl -sf -X POST \
+        -H "Authorization: Bearer $CI_JOB_TOKEN" \
+        -H "Content-Type: application/json" \
+        "$CI_API_V4_URL/projects/$CI_PROJECT_ID/releases" \
+        -d "{
+          \"tag_name\": \"$OUR_TAG\",
+          \"ref\": \"$CI_COMMIT_SHA\",
+          \"name\": \"Blackthorn Launcher ${UPSTREAM_TAG} (Flatpak ${OUR_TAG##*-})\",
+          \"description\": \"Flatpak packaging of upstream launcher ${UPSTREAM_TAG}.\n\nInstall:\n\`\`\`\nflatpak install --user ${BUNDLE}\n\`\`\`\n\nTo update, download and re-run \`flatpak install --user\` with the new bundle.\",
+          \"assets\": {
+            \"links\": [{
+              \"name\": \"$BUNDLE\",
+              \"url\": \"${CI_PROJECT_URL}${UPLOAD_PATH}\",
+              \"link_type\": \"package\"
+            }]
+          }
+        }"
+
+  artifacts:
+    paths:
+      - "Blackthorn-Launcher-*.flatpak"
+      - public/
+    expire_in: 7 days
+    when: always  # Upload even on the skip path so pages stays live
+
+pages:
+  stage: deploy
+  needs:
+    - job: build
+      artifacts: true
+  script:
+    - echo "Deploying OSTree repo to $CI_PAGES_URL"
+  artifacts:
+    paths:
+      - public/
