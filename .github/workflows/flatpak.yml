@@ -101,11 +101,7 @@ jobs:
         # Requires secrets: CF_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
         # Bucket must have public access enabled; set FLATPAK_REPO_URL to its r2.dev URL.
         # If these secrets are absent the step is skipped (bundle-only install still works).
-        if: >
-          vars.FLATPAK_REPO_URL != '' &&
-          secrets.CF_ACCOUNT_ID != '' &&
-          secrets.R2_ACCESS_KEY_ID != '' &&
-          secrets.R2_SECRET_ACCESS_KEY != ''
+        if: vars.FLATPAK_REPO_URL != ''
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
