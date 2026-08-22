@@ -58,7 +58,7 @@ build:
       LAST_REV=$(printf '%s\n' "$RELEASES" \
         | grep -E "^${UPSTREAM_TAG}-[0-9]+$" \
         | sed "s/^${UPSTREAM_TAG}-//" \
-        | sort -n | tail -1)
+        | sort -n | tail -1 || true)
       LAST_REV="${LAST_REV:-0}"
       NEXT_REV=$(( LAST_REV + 1 ))
       OUR_TAG="${UPSTREAM_TAG}-${NEXT_REV}"
