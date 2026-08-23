@@ -224,25 +224,28 @@ jobs:
           UPSTREAM_TAG="${{ steps.release.outputs.upstream_tag }}"
           BUNDLE="Blackthorn-Launcher-${OUR_TAG}-linux-x64.flatpak"
           REPO_URL="${{ vars.FLATPAK_REPO_URL }}"
-          if [ -n "$REPO_URL" ]; then
-            INSTALL_NOTES="**Via repository (recommended):**
-\`\`\`
-flatpak remote-add --user blackthorn ${REPO_URL}/blackthorn.flatpakrepo
-flatpak install --user blackthorn com.blackthorn.daoc.Launcher
-\`\`\`
-Then use \`flatpak update\` to stay current.
 
-**Via bundle:**"
-          else
-            INSTALL_NOTES="**Install:**"
-          fi
+          {
+            echo "Flatpak packaging of upstream launcher ${UPSTREAM_TAG}."
+            echo ""
+            if [ -n "$REPO_URL" ]; then
+              echo "**Via repository (recommended):**"
+              echo '```'
+              echo "flatpak remote-add --user blackthorn ${REPO_URL}/blackthorn.flatpakrepo"
+              echo "flatpak install --user blackthorn com.blackthorn.daoc.Launcher"
+              echo '```'
+              echo "Then use \`flatpak update\` to stay current."
+              echo ""
+              echo "**Via bundle:**"
+            else
+              echo "**Install:**"
+            fi
+            echo '```'
+            echo "flatpak install --user ${BUNDLE}"
+            echo '```'
+          } > release-notes.md
 
           gh release create "$OUR_TAG" \
             --title "Blackthorn Launcher ${UPSTREAM_TAG} (Flatpak ${OUR_TAG##*-})" \
-            --notes "Flatpak packaging of upstream launcher ${UPSTREAM_TAG}.
-
-          ${INSTALL_NOTES}
-          \`\`\`
-          flatpak install --user ${BUNDLE}
-          \`\`\`" \
+            --notes-file release-notes.md \
             "$BUNDLE"
