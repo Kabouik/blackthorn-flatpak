@@ -1,6 +1,20 @@
-# Blackthorn Launcher — Flatpak packaging
+# Blackthorn Launcher — Flatpak package
 
 Community Flatpak packaging for the [Blackthorn DAOC](https://blackthorn-daoc.com) launcher.
+
+## Why Flatpak
+
+- Sandboxed: runs isolated from the system, no risk of polluting your distro, declared permissions
+- Self-contained: Wine and the CEF BTUI runtime are bundled — nothing to install separately
+- Works on any distribution that supports Flatpak (Debian, Fedora, Arch, NixOS, Guix, Gentoo, openSUSE, SteamOS, Bazzite…)
+- `flatpak update` keeps the launcher current easily without manual downloads
+- Shared runtimes between all installed Flatpaks, wasting less space than AppImages that each bundle copies of every library
+- Desktop integration
+
+## What is bundled
+
+- **Wine** — [Kron4ek](https://github.com/Kron4ek/Wine-Builds) WoW64 stable 11.0 so wine does not vary among users
+- **CEF runtime** — bundled so the in-game BTUI works without a network fetch on first run
 
 ## Install
 
@@ -20,7 +34,7 @@ Download the latest `Blackthorn-Launcher-*.flatpak` from [Releases](../../releas
 flatpak install --user Blackthorn-Launcher-*.flatpak
 ```
 
-The bundle embeds the repository URL so `flatpak update` works after installation.
+The bundle embeds and enables the above repository URL so `flatpak update` works after installation.
 
 ## Updating
 
@@ -28,19 +42,8 @@ The bundle embeds the repository URL so `flatpak update` works after installatio
 flatpak update com.blackthorn.daoc.Launcher
 ```
 
-Or let GNOME Software / KDE Discover handle it automatically.
+Or let your distribution update system (e.g., GNOME Software, KDE Discover) handle it automatically.
 
-## What's bundled
-
-- **Wine** — Kron4ek WoW64 stable 11.0 (pure 64-bit host, no 32-bit ELF dependencies)
-- **CEF runtime** — bundled so the in-game overlay works without a network fetch on first run
-
-## Why Flatpak
-
-- Sandboxed: runs isolated from the system, no risk of polluting your distro
-- Self-contained: Wine and the CEF overlay runtime are bundled — nothing to install separately
-- Works on any distro that supports Flatpak (Fedora, Arch, Debian, NixOS, …)
-- `flatpak update` keeps the launcher current automatically
 
 ## Building locally
 
