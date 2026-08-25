@@ -36,7 +36,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: build-flatpak
+  group: ${{ github.event_name == 'schedule' && 'build-flatpak-schedule' || github.run_id }}
   cancel-in-progress: true
 
 jobs:
