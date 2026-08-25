@@ -35,15 +35,16 @@ permissions:
   contents: write
   actions: write
 
+concurrency:
+  group: build-flatpak
+  cancel-in-progress: true
+
 jobs:
   build-flatpak:
     name: Build Flatpak
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
-      - name: Check out packaging repo
-        uses: actions/checkout@v4
-
       - name: Resolve upstream tag and packaging revision
         id: release
         env:
@@ -79,6 +80,10 @@ jobs:
 
           echo "upstream_tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
           echo "our_tag=$OUR_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Check out packaging repo
+        if: steps.release.outputs.skip != 'true'
+        uses: actions/checkout@v4
 
       - name: Check out launcher source at ${{ steps.release.outputs.upstream_tag }}
         if: steps.release.outputs.skip != 'true'
