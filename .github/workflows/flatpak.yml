@@ -255,9 +255,11 @@ jobs:
             if [ -n "$PREV_UPSTREAM_TAG" ]; then
               echo ""
               echo "## Changelog (${PREV_UPSTREAM_TAG} → ${UPSTREAM_TAG})"
+              echo '```'
               GH_TOKEN="$LAUNCHER_TOKEN" gh api \
                 "repos/daoc-blackthorn/launcher/compare/${PREV_UPSTREAM_TAG}...${UPSTREAM_TAG}" \
                 --jq '.commits[] | "- \(.commit.message | split("\n")[0])"'
+              echo '```'
             fi
           } > release-notes.md
 
