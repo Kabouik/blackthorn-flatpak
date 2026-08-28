@@ -1,0 +1,158 @@
+diff --git a/node-src/integration.ts b/node-src/integration.ts
+index 1f1f79c0..6f237dc5 100644
+--- a/node-src/integration.ts
++++ b/node-src/integration.ts
+@@ -36,6 +36,8 @@ import {
+   applyPanelSnapshot,
+   deletePanelSnapshot,
+   listPanelSnapshots,
++  listIniSections,
++  listCharactersInIniDirectory,
+   getNewCharacterPanelDefaultStatus,
+   renamePanelSnapshot,
+   resolvePanelSnapshotDirectory,
+@@ -401,7 +403,30 @@ export function createLauncherServiceHandlers(
+         snapshotDirectory: resolvePanelSnapshotDirectory(context.config.file),
+         snapshotName,
+       }),
+-    snapshotCharacterPanels: async (characterName: string) => {
++    listCharacterIniSections: async (characterName: string) => {
++      const config = await context.config.load();
++      const iniDirectory = resolveSpecSwapDirectory({
++        platform: context.platform,
++        environment: context.environment,
++        winePrefix: config.uiOptions.linuxWinePrefix,
++      });
++      return listIniSections(
++        path.join(iniDirectory, `${characterName}-5.ini`),
++      );
++    },
++    listCharactersInIniDirectory: async () => {
++      const config = await context.config.load();
++      const iniDirectory = resolveSpecSwapDirectory({
++        platform: context.platform,
++        environment: context.environment,
++        winePrefix: config.uiOptions.linuxWinePrefix,
++      });
++      return listCharactersInIniDirectory(iniDirectory);
++    },
++    snapshotCharacterPanels: async (
++      characterName: string,
++      sections?: string[],
++    ) => {
+       const pid = await activeDaocProcessId();
+       if (!options.cefLifecycle)
+         throw new Error("CEF game bridge is not configured.");
+@@ -420,14 +445,29 @@ export function createLauncherServiceHandlers(
+         iniDirectory,
+       });
+       await options.cefLifecycle.requestProfileIni("save", characterName);
++      let width: number | undefined;
++      let height: number | undefined;
++      try {
++        const viewport = await options.cefLifecycle.getGameViewport();
++        width = viewport.width;
++        height = viewport.height;
++      } catch {
++        // viewport not critical — omit silently
++      }
+       options.logger?.info("[INI panels] writing panel snapshot", {
+         characterName,
+         snapshotDirectory,
++        sections,
++        width,
++        height,
+       });
+       const entry = await snapshotCharacterPanels({
+         iniDirectory,
+         snapshotDirectory,
+         characterName,
++        sections,
++        width,
++        height,
+       });
+       options.logger?.info("[INI panels] panel snapshot written", entry);
+       return entry;
+@@ -473,7 +513,11 @@ export function createLauncherServiceHandlers(
+         ...viewport,
+       });
+     },
+-    applyPanelSnapshot: async (characterName: string, snapshotName: string) => {
++    applyPanelSnapshot: async (
++      characterName: string,
++      snapshotName: string,
++      sections?: string[],
++    ) => {
+       const pid = await activeDaocProcessId();
+       if (!options.cefLifecycle)
+         throw new Error("CEF game bridge is not configured.");
+@@ -497,15 +541,17 @@ export function createLauncherServiceHandlers(
+         characterName,
+       });
+       await options.cefLifecycle.requestProfileIni("save", characterName);
+-      options.logger?.info("[INI panels] replacing target [Panels] section", {
++      options.logger?.info("[INI panels] replacing target INI sections", {
+         characterName,
+         snapshotName,
++        sections,
+       });
+       await applyPanelSnapshot({
+         iniDirectory,
+         snapshotDirectory,
+         characterName,
+         snapshotName,
++        sections,
+       });
+       options.logger?.info("[INI panels] requesting live profile reload", {
+         characterName,
+@@ -516,6 +562,50 @@ export function createLauncherServiceHandlers(
+         snapshotName,
+       });
+     },
++    applyPanelSnapshotToAllCharacters: async (
++      snapshotName: string,
++      sections?: string[],
++    ) => {
++      await activeDaocProcessId();
++      if (!options.cefLifecycle)
++        throw new Error("CEF game bridge is not configured.");
++      const config = await context.config.load();
++      const iniDirectory = resolveSpecSwapDirectory({
++        platform: context.platform,
++        environment: context.environment,
++        winePrefix: config.uiOptions.linuxWinePrefix,
++      });
++      const snapshotDirectory = resolvePanelSnapshotDirectory(
++        context.config.file,
++      );
++      const characters = await listCharactersInIniDirectory(iniDirectory);
++      options.logger?.info("[INI panels] applying snapshot to all characters", {
++        snapshotName,
++        sections,
++        characters,
++      });
++      for (const characterName of characters) {
++        await options.cefLifecycle.requestProfileIni("save", characterName);
++        await applyPanelSnapshot({
++          iniDirectory,
++          snapshotDirectory,
++          characterName,
++          snapshotName,
++          sections,
++        });
++      }
++      // Reload the active character's profile in the running game.
++      const activeCharacters = context.state.activeWindows;
++      const activeCharacter =
++        activeCharacters.length > 0 ? activeCharacters[0] : characters[0];
++      if (activeCharacter) {
++        await options.cefLifecycle.requestProfileIni("reload", activeCharacter);
++      }
++      options.logger?.info(
++        "[INI panels] apply-to-all completed",
++        { snapshotName, characters },
++      );
++    },
+     watchChatLogForItem: (file: string, signal?: AbortSignal) =>
+       context.chatLog.watch(file, { signal }),
+     cancelChatLogWatch: () => context.chatLog.cancel(),

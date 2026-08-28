@@ -1,0 +1,231 @@
+diff --git a/node-src/services/ini-panels.ts b/node-src/services/ini-panels.ts
+index 25c4cc79..179e31e1 100644
+--- a/node-src/services/ini-panels.ts
++++ b/node-src/services/ini-panels.ts
+@@ -17,6 +17,9 @@ export interface PanelSnapshotEntry {
+   sourceCharacter: string;
+   createdAtMs: number;
+   sizeBytes: number;
++  sections: string[];
++  width?: number;
++  height?: number;
+ }
+ 
+ const SNAPSHOT_SUFFIX = ".panels.ini";
+@@ -277,20 +280,42 @@ function metadataPath(snapshotDirectory: string, snapshotName: string): string {
+   );
+ }
+ 
+-async function readDisplayName(
++interface SnapshotMetadata {
++  displayName?: string;
++  sections?: string[];
++  width?: number;
++  height?: number;
++}
++
++async function readSnapshotMetadata(
+   snapshotDirectory: string,
+   snapshotName: string,
+-  fallback: string,
+-): Promise<string> {
++  fallbackDisplayName: string,
++): Promise<{ displayName: string; sections: string[]; width?: number; height?: number }> {
+   try {
+     const parsed = JSON.parse(
+       await readFile(metadataPath(snapshotDirectory, snapshotName), "utf8"),
+-    ) as { displayName?: unknown };
+-    return typeof parsed.displayName === "string"
+-      ? safeDisplayName(parsed.displayName)
+-      : fallback;
++    ) as SnapshotMetadata;
++    const displayName =
++      typeof parsed.displayName === "string"
++        ? safeDisplayName(parsed.displayName)
++        : fallbackDisplayName;
++    const sections =
++      Array.isArray(parsed.sections) &&
++      parsed.sections.every((s) => typeof s === "string")
++        ? (parsed.sections as string[])
++        : [];
++    const width =
++      typeof parsed.width === "number" && Number.isFinite(parsed.width)
++        ? parsed.width
++        : undefined;
++    const height =
++      typeof parsed.height === "number" && Number.isFinite(parsed.height)
++        ? parsed.height
++        : undefined;
++    return { displayName, sections, width, height };
+   } catch {
+-    return fallback;
++    return { displayName: fallbackDisplayName, sections: [] };
+   }
+ }
+ 
+@@ -302,6 +327,36 @@ function timestampName(date: Date): string {
+     .replace("Z", "");
+ }
+ 
++export async function listIniSections(iniPath: string): Promise<string[]> {
++  let text: string;
++  try {
++    text = await readFile(iniPath, "utf8");
++  } catch (error) {
++    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
++    throw error;
++  }
++  const sections: string[] = [];
++  for (const match of text.matchAll(/(?:^|\r?\n)\[([^\]\r\n]+)\]/giu)) {
++    sections.push(match[1]);
++  }
++  return sections;
++}
++
++export async function listCharactersInIniDirectory(
++  iniDirectory: string,
++): Promise<string[]> {
++  let names: string[];
++  try {
++    names = await readdir(iniDirectory);
++  } catch (error) {
++    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
++    throw error;
++  }
++  return names
++    .filter((name) => /^.+-5\.ini$/iu.test(name))
++    .map((name) => name.slice(0, -".ini".length - 2));
++}
++
+ export async function listPanelSnapshots(
+   snapshotDirectory: string,
+ ): Promise<PanelSnapshotEntry[]> {
+@@ -316,16 +371,24 @@ export async function listPanelSnapshots(
+       .filter((name) => SNAPSHOT_NAME.test(name))
+       .map(async (name): Promise<PanelSnapshotEntry | undefined> => {
+         const match = SNAPSHOT_NAME.exec(name);
+-        const metadata = await stat(path.join(snapshotDirectory, name)).catch(
++        const fileStat = await stat(path.join(snapshotDirectory, name)).catch(
+           () => undefined,
+         );
+-        if (!match || !metadata?.isFile()) return undefined;
++        if (!match || !fileStat?.isFile()) return undefined;
++        const meta = await readSnapshotMetadata(
++          snapshotDirectory,
++          name,
++          match[2],
++        );
+         return {
+           name,
+-          displayName: await readDisplayName(snapshotDirectory, name, match[2]),
++          displayName: meta.displayName,
+           sourceCharacter: match[2],
+-          createdAtMs: metadata.mtimeMs,
+-          sizeBytes: metadata.size,
++          createdAtMs: fileStat.mtimeMs,
++          sizeBytes: fileStat.size,
++          sections: meta.sections,
++          width: meta.width,
++          height: meta.height,
+         };
+       }),
+   );
+@@ -338,22 +401,44 @@ export async function snapshotCharacterPanels(options: {
+   iniDirectory: string;
+   snapshotDirectory: string;
+   characterName: string;
++  sections?: string[];
++  width?: number;
++  height?: number;
+   now?: Date;
+ }): Promise<PanelSnapshotEntry> {
+   const characterName = safeCharacterName(options.characterName);
++  const sections = options.sections?.length ? options.sections : ["Panels"];
+   const currentIni = path.join(options.iniDirectory, `${characterName}-5.ini`);
+-  const panels = extractPanelsSection(await readFile(currentIni, "utf8"));
++  const iniText = await readFile(currentIni, "utf8");
++  const parts: string[] = [];
++  for (const section of sections) {
++    const extracted = extractNamedSection(iniText, section);
++    if (extracted !== null) parts.push(extracted);
++  }
++  const content = parts.join("\n\n");
+   await mkdir(options.snapshotDirectory, { recursive: true });
+   const name = `${timestampName(options.now ?? new Date())}_${characterName}${SNAPSHOT_SUFFIX}`;
+   const file = path.join(options.snapshotDirectory, name);
+-  await writeFile(file, `${panels}\n`, { encoding: "utf8", flag: "wx" });
+-  const metadata = await stat(file);
++  await writeFile(file, `${content}\n`, { encoding: "utf8", flag: "wx" });
++  const metaObj: SnapshotMetadata = {
++    sections,
++    ...(options.width !== undefined ? { width: options.width } : {}),
++    ...(options.height !== undefined ? { height: options.height } : {}),
++  };
++  const metaFile = metadataPath(options.snapshotDirectory, name);
++  await writeFile(metaFile, `${JSON.stringify(metaObj, null, 2)}\n`, {
++    encoding: "utf8",
++  });
++  const fileStat = await stat(file);
+   return {
+     name,
+     displayName: characterName,
+     sourceCharacter: characterName,
+-    createdAtMs: metadata.mtimeMs,
+-    sizeBytes: metadata.size,
++    createdAtMs: fileStat.mtimeMs,
++    sizeBytes: fileStat.size,
++    sections,
++    width: options.width,
++    height: options.height,
+   };
+ }
+ 
+@@ -412,20 +497,45 @@ export async function applyPanelSnapshot(options: {
+   snapshotDirectory: string;
+   characterName: string;
+   snapshotName: string;
++  sections?: string[];
+ }): Promise<void> {
+   const characterName = safeCharacterName(options.characterName);
+   const snapshotName = safeSnapshotName(options.snapshotName);
+   const currentIni = path.join(options.iniDirectory, `${characterName}-5.ini`);
+-  const [current, snapshot] = await Promise.all([
++  const snapshotFile = path.join(options.snapshotDirectory, snapshotName);
++  const [current, snapshotText] = await Promise.all([
+     readFile(currentIni, "utf8"),
+-    readFile(path.join(options.snapshotDirectory, snapshotName), "utf8"),
++    readFile(snapshotFile, "utf8"),
+   ]);
++  // Determine which sections to apply: explicit arg > metadata > auto-detect.
++  let sectionsToApply: string[];
++  if (options.sections && options.sections.length > 0) {
++    sectionsToApply = options.sections;
++  } else {
++    const meta = await readSnapshotMetadata(
++      options.snapshotDirectory,
++      snapshotName,
++      "",
++    );
++    if (meta.sections.length > 0) {
++      sectionsToApply = meta.sections;
++    } else {
++      sectionsToApply = await listIniSections(snapshotFile);
++    }
++  }
++  let updated = current;
++  for (const section of sectionsToApply) {
++    const extracted = extractNamedSection(snapshotText, section);
++    if (extracted !== null) {
++      updated = replaceOrAppendNamedSection(updated, section, extracted);
++    }
++  }
+   const temporary = path.join(
+     options.iniDirectory,
+     `.${characterName}-5.panels-${process.pid}-${Date.now()}.tmp`,
+   );
+   try {
+-    await writeFile(temporary, replacePanelsSection(current, snapshot), {
++    await writeFile(temporary, updated, {
+       encoding: "utf8",
+       flag: "wx",
+     });

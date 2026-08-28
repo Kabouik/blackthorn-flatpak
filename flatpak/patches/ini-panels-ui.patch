@@ -1,0 +1,365 @@
+diff --git a/src/settings/panels.tsx b/src/settings/panels.tsx
+index 79487100..4ab04298 100644
+--- a/src/settings/panels.tsx
++++ b/src/settings/panels.tsx
+@@ -1181,15 +1181,90 @@ interface NewCharacterPanelDefaultStatus {
+   canRestore: boolean;
+ }
+ 
++interface PanelSnapshotEntry {
++  name: string;
++  displayName: string;
++  sourceCharacter: string;
++  createdAtMs: number;
++  sizeBytes: number;
++  sections: string[];
++  width?: number;
++  height?: number;
++}
++
++interface SectionPickerProps {
++  sections: string[];
++  selected: string[];
++  onChange: (next: string[]) => void;
++}
++
++function SectionPicker({ sections, selected, onChange }: SectionPickerProps) {
++  const toggle = (section: string) => {
++    onChange(
++      selected.includes(section)
++        ? selected.filter((s) => s !== section)
++        : [...selected, section],
++    );
++  };
++  return (
++    <div className="flex flex-wrap gap-2 py-1">
++      {sections.map((section) => (
++        <label
++          key={section}
++          className="flex items-center gap-1 cursor-pointer text-sm select-none"
++        >
++          <input
++            type="checkbox"
++            checked={selected.includes(section)}
++            onChange={() => toggle(section)}
++            className="accent-current"
++          />
++          {section}
++        </label>
++      ))}
++    </div>
++  );
++}
++
++type PickerMode =
++  | { kind: "create" }
++  | { kind: "apply"; snapshotName: string; target: "current" | "all" };
++
+ function IniSettingsPanel() {
+   const { playerInfo } = usePlayerInfo();
+   const characterName =
+     playerInfo?.isValid && playerInfo.name ? playerInfo.name.trim() : "";
++
++  // Snapshot list
++  const [snapshots, setSnapshots] = useState<PanelSnapshotEntry[]>([]);
++  const [snapshotsLoaded, setSnapshotsLoaded] = useState(false);
++
++  // Section picker state
++  const [pickerMode, setPickerMode] = useState<PickerMode | null>(null);
++  const [pickerSections, setPickerSections] = useState<string[]>([]);
++  const [pickerSelected, setPickerSelected] = useState<string[]>([]);
++
++  // Status
+   const [status, setStatus] = useState("");
+   const [isError, setIsError] = useState(false);
+   const [busy, setBusy] = useState(false);
++
++  // Panel defaults
+   const [defaultStatus, setDefaultStatus] =
+     useState<NewCharacterPanelDefaultStatus | null>(null);
++
++  const refreshSnapshots = useCallback(async () => {
++    if (!isTauri && !isCefInGame) return;
++    try {
++      const list = await invoke<PanelSnapshotEntry[]>("list_panel_snapshots");
++      setSnapshots(list);
++      setSnapshotsLoaded(true);
++    } catch (err) {
++      console.error("[INI panels] failed to list snapshots", err);
++      setSnapshotsLoaded(true);
++    }
++  }, []);
++
+   const refreshDefault = useCallback(async () => {
+     if (!characterName) {
+       setDefaultStatus(null);
+@@ -1204,14 +1279,123 @@ function IniSettingsPanel() {
+     } catch (error) {
+       console.error("[INI panels] failed to read new-character default", error);
+       setDefaultStatus(null);
+-      setIsError(true);
+-      setStatus(String(error));
+     }
+   }, [characterName]);
+ 
+   useEffect(() => {
++    void refreshSnapshots();
+     void refreshDefault();
+-  }, [refreshDefault]);
++  }, [refreshSnapshots, refreshDefault]);
++
++  // --- Create snapshot flow ---
++
++  const openCreatePicker = async () => {
++    setStatus("");
++    setIsError(false);
++    let sections: string[] = [];
++    if (characterName) {
++      try {
++        sections = await invoke<string[]>("list_character_ini_sections", {
++          characterName,
++        });
++      } catch {
++        sections = ["Panels"];
++      }
++    }
++    if (sections.length === 0) sections = ["Panels"];
++    setPickerSections(sections);
++    setPickerSelected([...sections]);
++    setPickerMode({ kind: "create" });
++  };
++
++  const confirmCreate = async () => {
++    if (!characterName) return;
++    setBusy(true);
++    setStatus("");
++    setIsError(false);
++    const sections = pickerSelected.length > 0 ? pickerSelected : ["Panels"];
++    setPickerMode(null);
++    try {
++      await invoke("snapshot_character_panels", { characterName, sections });
++      setStatus("Snapshot saved.");
++      await refreshSnapshots();
++    } catch (err) {
++      setIsError(true);
++      setStatus(String(err));
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  // --- Apply snapshot flow ---
++
++  const openApplyPicker = (
++    entry: PanelSnapshotEntry,
++    target: "current" | "all",
++  ) => {
++    setStatus("");
++    setIsError(false);
++    const sections =
++      entry.sections.length > 0 ? entry.sections : ["Panels"];
++    setPickerSections(sections);
++    setPickerSelected([...sections]);
++    setPickerMode({ kind: "apply", snapshotName: entry.name, target });
++  };
++
++  const confirmApply = async () => {
++    if (pickerMode?.kind !== "apply") return;
++    const { snapshotName, target } = pickerMode;
++    setBusy(true);
++    setStatus("");
++    setIsError(false);
++    const sections = pickerSelected.length > 0 ? pickerSelected : undefined;
++    setPickerMode(null);
++    try {
++      if (target === "all") {
++        await invoke("apply_panel_snapshot_to_all", { snapshotName, sections });
++        setStatus("Snapshot applied to all characters.");
++      } else {
++        await invoke("apply_panel_snapshot", {
++          characterName,
++          snapshotName,
++          sections,
++        });
++        setStatus("Snapshot applied.");
++      }
++    } catch (err) {
++      setIsError(true);
++      setStatus(String(err));
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  const cancelPicker = () => setPickerMode(null);
++
++  // --- Delete snapshot ---
++
++  const onDelete = async (entry: PanelSnapshotEntry) => {
++    const message = `Delete snapshot "${entry.displayName}"?`;
++    const ok = isCefInGame
++      ? window.confirm(message)
++      : await confirm(message, { title: "Delete snapshot?", kind: "warning" });
++    if (!ok) return;
++    setBusy(true);
++    setStatus("");
++    setIsError(false);
++    try {
++      await invoke("delete_panel_snapshot", { snapshotName: entry.name });
++      setStatus("Snapshot deleted.");
++      await refreshSnapshots();
++    } catch (err) {
++      setIsError(true);
++      setStatus(String(err));
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  // --- Panel defaults ---
+ 
+   const saveAsDefault = async () => {
+     if (!characterName || !defaultStatus) return;
+@@ -1274,8 +1458,121 @@ function IniSettingsPanel() {
+     }
+   };
+ 
++  if (!isTauri && !isCefInGame) {
++    return (
++      <SettingsEmptyState>
++        Panel snapshots are only available in the Blackthorn launcher app.
++      </SettingsEmptyState>
++    );
++  }
++
++  const isPickerOpen = pickerMode !== null;
++
+   return (
+     <>
++      <SettingsSectionLabel>Panel snapshots</SettingsSectionLabel>
++      <SettingsText tone="muted">
++        Save a character's panel layout as a named snapshot, then apply it to
++        any character — or all characters at once.
++      </SettingsText>
++
++      {/* Action bar */}
++      <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
++        <SettingsButton
++          disabled={busy || !characterName || isPickerOpen}
++          onClick={() => void openCreatePicker()}
++        >
++          Create new snapshot
++        </SettingsButton>
++      </div>
++
++      {/* Inline section picker */}
++      {isPickerOpen && (
++        <div
++          className="border border-current rounded p-3 mb-2"
++          style={{ opacity: 0.9 }}
++        >
++          <SettingsText bold>
++            {pickerMode?.kind === "create"
++              ? "Choose sections to save:"
++              : "Choose sections to apply:"}
++          </SettingsText>
++          <SectionPicker
++            sections={pickerSections}
++            selected={pickerSelected}
++            onChange={setPickerSelected}
++          />
++          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
++            <SettingsButton
++              disabled={busy || pickerSelected.length === 0}
++              onClick={() =>
++                void (pickerMode?.kind === "create"
++                  ? confirmCreate()
++                  : confirmApply())
++              }
++            >
++              {pickerMode?.kind === "create" ? "Save snapshot" : "Apply"}
++            </SettingsButton>
++            <SettingsButton disabled={busy} onClick={cancelPicker}>
++              Cancel
++            </SettingsButton>
++          </div>
++        </div>
++      )}
++
++      {status && (
++        <SettingsText tone={isError ? "danger" : "success"}>
++          {status}
++        </SettingsText>
++      )}
++
++      {/* Snapshot list */}
++      {snapshotsLoaded && snapshots.length === 0 && (
++        <SettingsEmptyState>No snapshots yet.</SettingsEmptyState>
++      )}
++      {snapshots.map((entry) => {
++        const date = new Date(entry.createdAtMs).toLocaleString();
++        const res =
++          entry.width && entry.height
++            ? `${entry.width}×${entry.height}`
++            : null;
++        const sectionList =
++          entry.sections.length > 0 ? entry.sections.join(", ") : "Panels";
++        const description = [date, res, sectionList]
++          .filter(Boolean)
++          .join(" · ");
++        return (
++          <SettingRow
++            key={entry.name}
++            title={entry.displayName}
++            description={description}
++            control={
++              <div style={{ display: "flex", gap: 4 }}>
++                <SettingsButton
++                  disabled={busy || !characterName || isPickerOpen}
++                  onClick={() => openApplyPicker(entry, "current")}
++                >
++                  Apply
++                </SettingsButton>
++                <SettingsButton
++                  disabled={busy || isPickerOpen}
++                  onClick={() => openApplyPicker(entry, "all")}
++                >
++                  All chars
++                </SettingsButton>
++                <SettingsButton
++                  disabled={busy || isPickerOpen}
++                  onClick={() => void onDelete(entry)}
++                >
++                  Delete
++                </SettingsButton>
++              </div>
++            }
++          />
++        );
++      })}
++
++      {/* Panel defaults */}
+       <SettingsSectionLabel>Panel defaults</SettingsSectionLabel>
+       {characterName && defaultStatus ? (
+         <SettingsText>
+@@ -1304,7 +1601,7 @@ function IniSettingsPanel() {
+         >
+           {busy
+             ? "Working…"
+-            : `Save ${characterName ?? "current character"}'s panels as default`}
++            : `Save ${characterName || "current character"}'s panels as default`}
+         </SettingsButton>
+         <SettingsButton
+           disabled={
+@@ -1315,11 +1612,6 @@ function IniSettingsPanel() {
+           Restore game default
+         </SettingsButton>
+       </div>
+-      {status && (
+-        <SettingsText tone={isError ? "danger" : "success"}>
+-          {status}
+-        </SettingsText>
+-      )}
+     </>
+   );
+ }
