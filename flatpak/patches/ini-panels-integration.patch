@@ -11,7 +11,7 @@ index 1f1f79c0..6f237dc5 100644
    getNewCharacterPanelDefaultStatus,
    renamePanelSnapshot,
    resolvePanelSnapshotDirectory,
-@@ -401,7 +403,30 @@ export function createLauncherServiceHandlers(
+@@ -401,7 +403,37 @@ export function createLauncherServiceHandlers(
          snapshotDirectory: resolvePanelSnapshotDirectory(context.config.file),
          snapshotName,
        }),
