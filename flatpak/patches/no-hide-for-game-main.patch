@@ -1,0 +1,51 @@
+diff --git a/electron/main.ts b/electron/main.ts
+index 0cd36842..37459324 100644
+--- a/electron/main.ts
++++ b/electron/main.ts
+@@ -990,9 +990,28 @@ async function registerServiceCommands(): Promise<void> {
+       typeof args.snapshotName === "string" ? args.snapshotName : "",
+     ),
+   );
++  registerCommand("list_character_ini_sections", (args) =>
++    handlers.listCharacterIniSections(
++      typeof args.characterName === "string" ? args.characterName : "",
++    ),
++  );
++  registerCommand("list_characters_in_ini_directory", () =>
++    handlers.listCharactersInIniDirectory(),
++  );
+   registerCommand("snapshot_character_panels", (args) =>
+     handlers.snapshotCharacterPanels(
+       typeof args.characterName === "string" ? args.characterName : "",
++      Array.isArray(args.sections)
++        ? args.sections.filter((s): s is string => typeof s === "string")
++        : undefined,
++    ),
++  );
++  registerCommand("apply_panel_snapshot_to_all", (args) =>
++    handlers.applyPanelSnapshotToAllCharacters(
++      typeof args.snapshotName === "string" ? args.snapshotName : "",
++      Array.isArray(args.sections)
++        ? args.sections.filter((s): s is string => typeof s === "string")
++        : undefined,
+     ),
+   );
+   registerCommand("get_new_character_panel_default_status", () =>
+@@ -1010,6 +1029,9 @@ async function registerServiceCommands(): Promise<void> {
+     handlers.applyPanelSnapshot(
+       typeof args.characterName === "string" ? args.characterName : "",
+       typeof args.snapshotName === "string" ? args.snapshotName : "",
++      Array.isArray(args.sections)
++        ? args.sections.filter((s): s is string => typeof s === "string")
++        : undefined,
+     ),
+   );
+   registerCommand("cancel_chat_log_watch", () => handlers.cancelChatLogWatch());
+@@ -1971,6 +1993,7 @@ let appQuitRequested = false;
+ 
+ const launcherVisibility = createLauncherVisibilityController({
+   getLauncher: () => getWindow("launcher"),
++  noHideForGame: app.commandLine.hasSwitch("no-hide-for-game"),
+ });
+ 
+ function setManagedGameActivity(active: boolean): void {

@@ -1,0 +1,20 @@
+diff --git a/electron/launcher-visibility.ts b/electron/launcher-visibility.ts
+index 67a39aad..9dfde828 100644
+--- a/electron/launcher-visibility.ts
++++ b/electron/launcher-visibility.ts
+@@ -21,6 +21,7 @@ export interface LauncherVisibilityController {
+  */
+ export function createLauncherVisibilityController(options: {
+   getLauncher: () => LauncherVisibilityWindow | undefined;
++  noHideForGame?: boolean;
+ }): LauncherVisibilityController {
+   let hiddenForGame = false;
+ 
+@@ -39,6 +40,7 @@ export function createLauncherVisibilityController(options: {
+   };
+ 
+   const hideForGame = (): void => {
++    if (options.noHideForGame) return;
+     const launcher = getUsableLauncher();
+     if (!launcher) return;
+     hiddenForGame = true;
