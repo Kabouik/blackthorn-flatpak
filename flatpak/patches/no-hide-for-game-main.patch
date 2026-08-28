@@ -1,5 +1,5 @@
 diff --git a/electron/main.ts b/electron/main.ts
-index 0cd36842..37459324 100644
+index 0cd36842..d46328d1 100644
 --- a/electron/main.ts
 +++ b/electron/main.ts
 @@ -990,9 +990,28 @@ async function registerServiceCommands(): Promise<void> {
@@ -45,7 +45,7 @@ index 0cd36842..37459324 100644
  
  const launcherVisibility = createLauncherVisibilityController({
    getLauncher: () => getWindow("launcher"),
-+  noHideForGame: app.commandLine.hasSwitch("no-hide-for-game"),
++  noHideForGame: app.commandLine.hasSwitch("no-hide"),
  });
  
  function setManagedGameActivity(active: boolean): void {
