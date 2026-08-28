@@ -36,7 +36,7 @@ index 79487100..4ab04298 100644
 +      {sections.map((section) => (
 +        <label
 +          key={section}
-+          className="flex items-center gap-1 cursor-pointer text-sm select-none"
++          className="flex items-center gap-1 cursor-pointer text-sm select-none text-current"
 +        >
 +          <input
 +            type="checkbox"

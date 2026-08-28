@@ -23,6 +23,13 @@ index 1f1f79c0..6f237dc5 100644
 +        environment: context.environment,
 +        winePrefix: config.uiOptions.linuxWinePrefix,
 +      });
++      if (options.cefLifecycle) {
++        try {
++          await options.cefLifecycle.requestProfileIni("save", characterName);
++        } catch {
++          // game not running or flush failed — read from disk as-is
++        }
++      }
 +      return listIniSections(
 +        path.join(iniDirectory, `${characterName}-5.ini`),
 +      );
