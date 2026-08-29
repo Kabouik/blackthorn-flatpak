@@ -93,7 +93,7 @@ index 1f1f79c0..6f237dc5 100644
        const pid = await activeDaocProcessId();
        if (!options.cefLifecycle)
          throw new Error("CEF game bridge is not configured.");
-@@ -497,18 +541,16 @@ export function createLauncherServiceHandlers(
+@@ -497,15 +541,18 @@ export function createLauncherServiceHandlers(
          characterName,
        });
        await options.cefLifecycle.requestProfileIni("save", characterName);
@@ -111,12 +111,9 @@ index 1f1f79c0..6f237dc5 100644
          snapshotName,
 +        sections,
        });
--      options.logger?.info("[INI panels] requesting live profile reload", {
--        characterName,
--        snapshotName,
--      });
--      await options.cefLifecycle.requestProfileIni("reload", characterName);
-@@ -516,6 +558,47 @@ export function createLauncherServiceHandlers(
+       options.logger?.info("[INI panels] requesting live profile reload", {
+         characterName,
+@@ -516,6 +563,47 @@ export function createLauncherServiceHandlers(
          snapshotName,
        });
      },
