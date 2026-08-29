@@ -196,7 +196,7 @@ index 79487100..4ab04298 100644
 +          snapshotName,
 +          sections,
 +        });
-+        setStatus("Snapshot applied. Relog your character to see changes.");
++        setStatus("Snapshot applied. Relog your character to see changes. Do not use 'Save as default' until after relogging.");
 +      }
 +    } catch (err) {
 +      setIsError(true);
