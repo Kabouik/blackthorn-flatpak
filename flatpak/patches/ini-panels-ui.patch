@@ -2,7 +2,7 @@ diff --git a/src/settings/panels.tsx b/src/settings/panels.tsx
 index 79487100..4ab04298 100644
 --- a/src/settings/panels.tsx
 +++ b/src/settings/panels.tsx
-@@ -1181,15 +1181,92 @@ interface NewCharacterPanelDefaultStatus {
+@@ -1181,15 +1181,93 @@ interface NewCharacterPanelDefaultStatus {
    canRestore: boolean;
  }
  
@@ -70,6 +70,7 @@ index 79487100..4ab04298 100644
 +  const [pickerSections, setPickerSections] = useState<string[]>([]);
 +  const [pickerSelected, setPickerSelected] = useState<string[]>([]);
 +  const [pendingDelete, setPendingDelete] = useState<PanelSnapshotEntry | null>(null);
++  const [pendingRestoreDefault, setPendingRestoreDefault] = useState(false);
 +
 +  // Status
    const [status, setStatus] = useState("");
@@ -95,7 +96,7 @@ index 79487100..4ab04298 100644
    const refreshDefault = useCallback(async () => {
      if (!characterName) {
        setDefaultStatus(null);
-@@ -1204,14 +1281,141 @@ function IniSettingsPanel() {
+@@ -1204,14 +1282,138 @@ function IniSettingsPanel() {
      } catch (error) {
        console.error("[INI panels] failed to read new-character default", error);
        setDefaultStatus(null);
@@ -237,7 +238,7 @@ index 79487100..4ab04298 100644
  
    const saveAsDefault = async () => {
      if (!characterName || !defaultStatus) return;
-@@ -1274,8 +1473,142 @@ function IniSettingsPanel() {
+@@ -1274,8 +1476,166 @@ function IniSettingsPanel() {
      }
    };
  
@@ -251,6 +252,27 @@ index 79487100..4ab04298 100644
 +
 +  const isPickerOpen = pickerMode !== null;
 +  const isPendingDeleteOpen = pendingDelete !== null;
++
++  const doRestoreDefault = async () => {
++    setPendingRestoreDefault(false);
++    setBusy(true);
++    setIsError(false);
++    setStatus("");
++    try {
++      const next = await invoke<NewCharacterPanelDefaultStatus>(
++        "restore_new_character_panel_default",
++      );
++      setDefaultStatus(next);
++      setStatus(
++        `Restored the game panel default for ${next.width}×${next.height}.`,
++      );
++    } catch (error) {
++      setIsError(true);
++      setStatus(String(error));
++    } finally {
++      setBusy(false);
++    }
++  };
 +
    return (
      <>
@@ -383,7 +405,29 @@ index 79487100..4ab04298 100644
 +      </SettingsText>
        {characterName && defaultStatus ? (
          <SettingsText>
-@@ -1304,7 +1640,7 @@ function IniSettingsPanel() {
+@@ -1299,2 +1659,21 @@ function IniSettingsPanel() {
+       )}
++      {pendingRestoreDefault && (
++        <div
++          className="border border-current rounded p-3 mb-2"
++          style={{ opacity: 0.9 }}
++        >
++          <SettingsText bold>
++            Restore the game default for {defaultStatus?.width}×
++            {defaultStatus?.height}?
++          </SettingsText>
++          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
++            <SettingsButton disabled={busy} onClick={() => void doRestoreDefault()}>
++              Restore
++            </SettingsButton>
++            <SettingsButton disabled={busy} onClick={() => setPendingRestoreDefault(false)}>
++              Cancel
++            </SettingsButton>
++          </div>
++        </div>
++      )}
+       <div style={{ display: "flex", gap: 6 }}>
+@@ -1304,10 +1683,11 @@ function IniSettingsPanel() {
          >
            {busy
              ? "Working…"
@@ -392,3 +436,9 @@ index 79487100..4ab04298 100644
          </SettingsButton>
          <SettingsButton
            disabled={
+-           busy || !defaultStatus?.canRestore || !defaultStatus.customized
++           busy || !defaultStatus?.canRestore || !defaultStatus.customized ||
++           isPickerOpen || isPendingDeleteOpen || pendingRestoreDefault
+          }
+-         onClick={() => void restoreDefault()}
++         onClick={isCefInGame ? () => setPendingRestoreDefault(true) : () => void restoreDefault()}
