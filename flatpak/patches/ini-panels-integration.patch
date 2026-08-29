@@ -13,7 +13,7 @@ index 1f1f79c0..6f237dc5 100644
    getNewCharacterPanelDefaultStatus,
    renamePanelSnapshot,
    resolvePanelSnapshotDirectory,
-@@ -399,6 +401,45 @@ export function createLauncherServiceHandlers(
+@@ -399,4 +401,48 @@ export function createLauncherServiceHandlers(
  ): LauncherServiceHandlers {
    const { context, options } = params;
    const activeDaocProcessId = createActiveDaocProcessIdGetter(params);
@@ -144,7 +144,7 @@ index 1f1f79c0..6f237dc5 100644
        const pid = await activeDaocProcessId();
        if (!options.cefLifecycle)
          throw new Error("CEF game bridge is not configured.");
-@@ -497,15 +584,27 @@ export function createLauncherServiceHandlers(
+@@ -497,15 +584,25 @@ export function createLauncherServiceHandlers(
          characterName,
        });
        await options.cefLifecycle.requestProfileIni("save", characterName);
@@ -177,7 +177,7 @@ index 1f1f79c0..6f237dc5 100644
 +      }
        options.logger?.info("[INI panels] requesting live profile reload", {
          characterName,
-@@ -516,6 +615,59 @@ export function createLauncherServiceHandlers(
+@@ -516,6 +615,69 @@ export function createLauncherServiceHandlers(
          snapshotName,
        });
 +      return { deferred };
