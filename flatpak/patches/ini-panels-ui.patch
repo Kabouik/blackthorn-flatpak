@@ -2,7 +2,7 @@ diff --git a/src/settings/panels.tsx b/src/settings/panels.tsx
 index 79487100..4ab04298 100644
 --- a/src/settings/panels.tsx
 +++ b/src/settings/panels.tsx
-@@ -1181,15 +1181,91 @@ interface NewCharacterPanelDefaultStatus {
+@@ -1181,15 +1181,92 @@ interface NewCharacterPanelDefaultStatus {
    canRestore: boolean;
  }
  
@@ -69,6 +69,7 @@ index 79487100..4ab04298 100644
 +  const [pickerMode, setPickerMode] = useState<PickerMode | null>(null);
 +  const [pickerSections, setPickerSections] = useState<string[]>([]);
 +  const [pickerSelected, setPickerSelected] = useState<string[]>([]);
++  const [pendingDelete, setPendingDelete] = useState<PanelSnapshotEntry | null>(null);
 +
 +  // Status
    const [status, setStatus] = useState("");
@@ -94,7 +95,7 @@ index 79487100..4ab04298 100644
    const refreshDefault = useCallback(async () => {
      if (!characterName) {
        setDefaultStatus(null);
-@@ -1204,14 +1280,136 @@ function IniSettingsPanel() {
+@@ -1204,14 +1281,136 @@ function IniSettingsPanel() {
      } catch (error) {
        console.error("[INI panels] failed to read new-character default", error);
        setDefaultStatus(null);
@@ -209,12 +210,12 @@ index 79487100..4ab04298 100644
 +
 +  // --- Delete snapshot ---
 +
-+  const onDelete = async (entry: PanelSnapshotEntry) => {
-+    const message = `Delete snapshot "${entry.displayName}"?`;
-+    const ok = isCefInGame
-+      ? window.confirm(message)
-+      : await confirm(message, { title: "Delete snapshot?", kind: "warning" });
-+    if (!ok) return;
++  const onDelete = (entry: PanelSnapshotEntry) => setPendingDelete(entry);
++
++  const confirmDelete = async () => {
++    if (!pendingDelete) return;
++    const entry = pendingDelete;
++    setPendingDelete(null);
 +    setBusy(true);
 +    setStatus("");
 +    setIsError(false);
@@ -234,7 +235,7 @@ index 79487100..4ab04298 100644
  
    const saveAsDefault = async () => {
      if (!characterName || !defaultStatus) return;
-@@ -1274,8 +1472,121 @@ function IniSettingsPanel() {
+@@ -1274,8 +1473,142 @@ function IniSettingsPanel() {
      }
    };
  
@@ -247,6 +248,7 @@ index 79487100..4ab04298 100644
 +  }
 +
 +  const isPickerOpen = pickerMode !== null;
++  const isPendingDeleteOpen = pendingDelete !== null;
 +
    return (
      <>
@@ -259,7 +261,7 @@ index 79487100..4ab04298 100644
 +      {/* Action bar */}
 +      <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
 +        <SettingsButton
-+          disabled={busy || !characterName || isPickerOpen}
++          disabled={busy || !characterName || isPickerOpen || isPendingDeleteOpen}
 +          onClick={() => void openCreatePicker()}
 +        >
 +          Create new snapshot
@@ -300,6 +302,26 @@ index 79487100..4ab04298 100644
 +        </div>
 +      )}
 +
++      {/* Inline delete confirmation */}
++      {isPendingDeleteOpen && (
++        <div
++          className="border border-current rounded p-3 mb-2"
++          style={{ opacity: 0.9 }}
++        >
++          <SettingsText bold>
++            Delete &quot;{pendingDelete?.displayName}&quot;?
++          </SettingsText>
++          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
++            <SettingsButton disabled={busy} onClick={() => void confirmDelete()}>
++              Delete
++            </SettingsButton>
++            <SettingsButton disabled={busy} onClick={() => setPendingDelete(null)}>
++              Cancel
++            </SettingsButton>
++          </div>
++        </div>
++      )}
++
 +      {status && (
 +        <SettingsText tone={isError ? "danger" : "success"}>
 +          {status}
@@ -329,20 +351,20 @@ index 79487100..4ab04298 100644
 +            control={
 +              <div style={{ display: "flex", gap: 4 }}>
 +                <SettingsButton
-+                  disabled={busy || !characterName || isPickerOpen}
++                  disabled={busy || !characterName || isPickerOpen || isPendingDeleteOpen}
 +                  onClick={() => openApplyPicker(entry, "current")}
 +                >
 +                  Apply
 +                </SettingsButton>
 +                <SettingsButton
-+                  disabled={busy || isPickerOpen}
++                  disabled={busy || isPickerOpen || isPendingDeleteOpen}
 +                  onClick={() => openApplyPicker(entry, "all")}
 +                >
 +                  All chars
 +                </SettingsButton>
 +                <SettingsButton
-+                  disabled={busy || isPickerOpen}
-+                  onClick={() => void onDelete(entry)}
++                  disabled={busy || isPickerOpen || isPendingDeleteOpen}
++                  onClick={() => onDelete(entry)}
 +                >
 +                  Delete
 +                </SettingsButton>
@@ -356,7 +378,7 @@ index 79487100..4ab04298 100644
        <SettingsSectionLabel>Panel defaults</SettingsSectionLabel>
        {characterName && defaultStatus ? (
          <SettingsText>
-@@ -1304,7 +1615,7 @@ function IniSettingsPanel() {
+@@ -1304,7 +1637,7 @@ function IniSettingsPanel() {
          >
            {busy
              ? "Working…"
@@ -365,15 +387,3 @@ index 79487100..4ab04298 100644
          </SettingsButton>
          <SettingsButton
            disabled={
-@@ -1315,11 +1626,6 @@ function IniSettingsPanel() {
-           Restore game default
-         </SettingsButton>
-       </div>
--      {status && (
--        <SettingsText tone={isError ? "danger" : "success"}>
--          {status}
--        </SettingsText>
--      )}
-     </>
-   );
- }
