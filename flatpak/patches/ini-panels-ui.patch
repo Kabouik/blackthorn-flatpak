@@ -95,7 +95,7 @@ index 79487100..4ab04298 100644
    const refreshDefault = useCallback(async () => {
      if (!characterName) {
        setDefaultStatus(null);
-@@ -1204,14 +1281,138 @@ function IniSettingsPanel() {
+@@ -1204,14 +1281,141 @@ function IniSettingsPanel() {
      } catch (error) {
        console.error("[INI panels] failed to read new-character default", error);
        setDefaultStatus(null);
@@ -378,9 +378,12 @@ index 79487100..4ab04298 100644
 +
 +      {/* Panel defaults */}
        <SettingsSectionLabel>Panel defaults</SettingsSectionLabel>
++      <SettingsText tone="muted">
++        After applying a snapshot, relog before saving or restoring panel defaults.
++      </SettingsText>
        {characterName && defaultStatus ? (
          <SettingsText>
-@@ -1304,7 +1637,7 @@ function IniSettingsPanel() {
+@@ -1304,7 +1640,7 @@ function IniSettingsPanel() {
          >
            {busy
              ? "Working…"
