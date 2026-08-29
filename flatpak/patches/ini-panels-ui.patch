@@ -436,9 +436,9 @@ index 79487100..4ab04298 100644
          </SettingsButton>
          <SettingsButton
            disabled={
--           busy || !defaultStatus?.canRestore || !defaultStatus.customized
-+           busy || !defaultStatus?.canRestore || !defaultStatus.customized ||
-+           isPickerOpen || isPendingDeleteOpen || pendingRestoreDefault
+-            busy || !defaultStatus?.canRestore || !defaultStatus.customized
++            busy || !defaultStatus?.canRestore || !defaultStatus.customized ||
++            isPickerOpen || isPendingDeleteOpen || pendingRestoreDefault
           }
--         onClick={() => void restoreDefault()}
-+         onClick={isCefInGame ? () => setPendingRestoreDefault(true) : () => void restoreDefault()}
+-          onClick={() => void restoreDefault()}
++          onClick={isCefInGame ? () => setPendingRestoreDefault(true) : () => void restoreDefault()}
