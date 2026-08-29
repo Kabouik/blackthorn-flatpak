@@ -189,18 +189,20 @@ index 79487100..4ab04298 100644
 +    try {
 +      if (target === "all") {
 +        await invoke("apply_panel_snapshot_to_all", { snapshotName, sections });
-+        setStatus("Snapshot applied to all characters.");
++        setStatus("Snapshot applied to all characters. Relog each character to see changes.");
 +      } else {
 +        await invoke("apply_panel_snapshot", {
 +          characterName,
 +          snapshotName,
 +          sections,
 +        });
-+        setStatus("Snapshot applied.");
++        setStatus("Snapshot applied. Relog your character to see changes.");
 +      }
 +    } catch (err) {
 +      setIsError(true);
 +      setStatus(String(err));
++      // File may have been deleted externally — refresh so the stale entry disappears.
++      if (String(err).includes("ENOENT")) await refreshSnapshots();
 +    } finally {
 +      setBusy(false);
 +    }

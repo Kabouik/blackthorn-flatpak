@@ -93,10 +93,11 @@ index 1f1f79c0..6f237dc5 100644
        const pid = await activeDaocProcessId();
        if (!options.cefLifecycle)
          throw new Error("CEF game bridge is not configured.");
-@@ -497,15 +541,17 @@ export function createLauncherServiceHandlers(
+@@ -497,18 +541,16 @@ export function createLauncherServiceHandlers(
          characterName,
        });
        await options.cefLifecycle.requestProfileIni("save", characterName);
++      await options.cefLifecycle.requestProfileIni("reload", characterName);
 -      options.logger?.info("[INI panels] replacing target [Panels] section", {
 +      options.logger?.info("[INI panels] replacing target INI sections", {
          characterName,
@@ -110,9 +111,12 @@ index 1f1f79c0..6f237dc5 100644
          snapshotName,
 +        sections,
        });
-       options.logger?.info("[INI panels] requesting live profile reload", {
-         characterName,
-@@ -516,6 +562,50 @@ export function createLauncherServiceHandlers(
+-      options.logger?.info("[INI panels] requesting live profile reload", {
+-        characterName,
+-        snapshotName,
+-      });
+-      await options.cefLifecycle.requestProfileIni("reload", characterName);
+@@ -516,6 +558,47 @@ export function createLauncherServiceHandlers(
          snapshotName,
        });
      },
@@ -138,8 +142,12 @@ index 1f1f79c0..6f237dc5 100644
 +        sections,
 +        characters,
 +      });
++      const activeWindows = context.state.activeWindows ?? [];
 +      for (const characterName of characters) {
 +        await options.cefLifecycle.requestProfileIni("save", characterName);
++        if (activeWindows.includes(characterName)) {
++          await options.cefLifecycle.requestProfileIni("reload", characterName);
++        }
 +        await applyPanelSnapshot({
 +          iniDirectory,
 +          snapshotDirectory,
@@ -147,13 +155,6 @@ index 1f1f79c0..6f237dc5 100644
 +          snapshotName,
 +          sections,
 +        });
-+      }
-+      // Reload the active character's profile in the running game.
-+      const activeCharacters = context.state.activeWindows;
-+      const activeCharacter =
-+        activeCharacters.length > 0 ? activeCharacters[0] : characters[0];
-+      if (activeCharacter) {
-+        await options.cefLifecycle.requestProfileIni("reload", activeCharacter);
 +      }
 +      options.logger?.info(
 +        "[INI panels] apply-to-all completed",
