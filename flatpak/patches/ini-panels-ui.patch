@@ -427,7 +427,7 @@ index 79487100..4ab04298 100644
 +        </div>
 +      )}
        <div style={{ display: "flex", gap: 6 }}>
-@@ -1304,10 +1683,11 @@ function IniSettingsPanel() {
+@@ -1304,7 +1683,7 @@ function IniSettingsPanel() {
          >
            {busy
              ? "Working…"
@@ -436,9 +436,9 @@ index 79487100..4ab04298 100644
          </SettingsButton>
          <SettingsButton
            disabled={
--            busy || !defaultStatus?.canRestore || !defaultStatus.customized
-+            busy || !defaultStatus?.canRestore || !defaultStatus.customized ||
-+            isPickerOpen || isPendingDeleteOpen || pendingRestoreDefault
-           }
+@@ -1313,4 +1692,4 @@ function IniSettingsPanel() {
 -          onClick={() => void restoreDefault()}
 +          onClick={isCefInGame ? () => setPendingRestoreDefault(true) : () => void restoreDefault()}
+         >
+           Restore game default
+         </SettingsButton>
