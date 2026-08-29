@@ -17,13 +17,16 @@ index 79487100..4ab04298 100644
 +  height?: number;
 +}
 +
++const RELOG_REQUIRED_SECTIONS = new Set(["Chat"]);
++
 +interface SectionPickerProps {
 +  sections: string[];
 +  selected: string[];
 +  onChange: (next: string[]) => void;
++  showRelogHint?: boolean;
 +}
 +
-+function SectionPicker({ sections, selected, onChange }: SectionPickerProps) {
++function SectionPicker({ sections, selected, onChange, showRelogHint }: SectionPickerProps) {
 +  const toggle = (section: string) => {
 +    onChange(
 +      selected.includes(section)
@@ -31,9 +34,13 @@ index 79487100..4ab04298 100644
 +        : [...selected, section],
 +    );
 +  };
++  const sorted = [
++    ...sections.filter((s) => !RELOG_REQUIRED_SECTIONS.has(s)),
++    ...sections.filter((s) => RELOG_REQUIRED_SECTIONS.has(s)),
++  ];
 +  return (
 +    <div className="flex flex-wrap gap-2 py-1">
-+      {sections.map((section) => (
++      {sorted.map((section) => (
 +        <label
 +          key={section}
 +          className="flex items-center gap-1 cursor-pointer text-sm select-none"
@@ -46,6 +53,7 @@ index 79487100..4ab04298 100644
 +            className="accent-current"
 +          />
 +          {section}
++          {showRelogHint && RELOG_REQUIRED_SECTIONS.has(section) ? " (on logout)" : ""}
 +        </label>
 +      ))}
 +    </div>
@@ -189,15 +197,23 @@ index 79487100..4ab04298 100644
 +    setPickerMode(null);
 +    try {
 +      if (target === "all") {
-+        await invoke("apply_panel_snapshot_to_all", { snapshotName, sections });
-+        setStatus("Snapshot applied to all characters. Relog each character to see changes.");
++        const { deferredFor } = await invoke<{ deferredFor: string[] }>("apply_panel_snapshot_to_all", { snapshotName, sections });
++        setStatus(
++          deferredFor.length > 0
++            ? "Snapshot applied to all characters. Chat will apply to active characters when they log out."
++            : "Snapshot applied to all characters. Relog each character to see changes.",
++        );
 +      } else {
-+        await invoke("apply_panel_snapshot", {
++        const { deferred } = await invoke<{ deferred: string[] }>("apply_panel_snapshot", {
 +          characterName,
 +          snapshotName,
 +          sections,
 +        });
-+        setStatus("Snapshot applied. Relog your character to see changes. Do not use 'Save as default' until after relogging.");
++        setStatus(
++          deferred.length > 0
++            ? "Snapshot applied. Chat will apply automatically when you log out."
++            : "Snapshot applied. Relog your character to see changes. Do not use 'Save as default' until after relogging.",
++        );
 +      }
 +    } catch (err) {
 +      setIsError(true);
@@ -307,6 +323,7 @@ index 79487100..4ab04298 100644
 +            sections={pickerSections}
 +            selected={pickerSelected}
 +            onChange={setPickerSelected}
++            showRelogHint={pickerMode?.kind !== "create"}
 +          />
 +          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
 +            <SettingsButton
