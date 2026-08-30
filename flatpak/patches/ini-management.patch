@@ -717,8 +717,8 @@ index 79487100..4ab04298 100644
 +        setStatus(
 +          deferredFor.length > 0
 +            ? sections?.includes("Panels")
-+              ? "Snapshot applied to all characters. Log out without moving panels to also apply chat window positions to active characters."
-+              : "Snapshot applied to all characters. Chat settings will apply to active characters when they log out."
++              ? "Snapshot applied to all characters. Log out without editing the UI to also apply chat window settings to the current character."
++              : "Snapshot applied to all characters. Chat settings will apply only after you log out."
 +            : "Snapshot applied to all characters. Relog each character to see changes.",
 +        );
 +      } else {
@@ -729,9 +729,9 @@ index 79487100..4ab04298 100644
 +        });
 +        setStatus(
 +          deferred.includes("Panels")
-+            ? "Snapshot applied. Panel positions are live. Log out without moving panels to also apply chat window positions."
++            ? "Snapshot applied. Panel positions are live. Log out now before editing the UI to also apply chat window settings."
 +            : deferred.length > 0
-+              ? "Snapshot applied. Chat settings will apply when you log out."
++              ? "Snapshot applied. Chat settings will apply only after you log out."
 +              : "Snapshot applied. Relog your character to see changes. Do not use 'Save as default' until after relogging.",
 +        );
 +      }
