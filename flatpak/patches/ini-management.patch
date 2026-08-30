@@ -245,7 +245,7 @@ index 1f1f79c0..6f237dc5 100644
    renamePanelSnapshot,
    resolvePanelSnapshotDirectory,
 @@ -360,1 +363,46 @@ export function createLauncherServiceHandlers(
-+const DEFERRED_SECTIONS = new Set(["Panels", "Chat"]);
++const DEFERRED_SECTIONS = new Set(["Panels", "Chat", "NameOptions"]);
 +const _deferredWatchers = new Map<string, () => void>();
 +
 +function scheduleDeferredApply(job: {
@@ -531,7 +531,7 @@ index 79487100..4ab04298 100644
 +  height?: number;
 +}
 +
-+const RELOG_REQUIRED_SECTIONS = new Set(["Chat"]);
++const RELOG_REQUIRED_SECTIONS = new Set(["Chat", "NameOptions"]);
 +
 +interface SectionPickerProps {
 +  sections: string[];
@@ -718,7 +718,7 @@ index 79487100..4ab04298 100644
 +          deferredFor.length > 0
 +            ? sections?.includes("Panels")
 +              ? "Snapshot applied to all characters. Log out without editing the UI to also apply chat window settings to the current character."
-+              : "Snapshot applied to all characters. Chat settings will apply only after you log out."
++              : "Snapshot applied to all characters. Some settings will apply only after you log out."
 +            : "Snapshot applied to all characters. Relog each character to see changes.",
 +        );
 +      } else {
@@ -731,7 +731,7 @@ index 79487100..4ab04298 100644
 +          deferred.includes("Panels")
 +            ? "Snapshot applied. Panel positions are live. Log out now before editing the UI to also apply chat window settings."
 +            : deferred.length > 0
-+              ? "Snapshot applied. Chat settings will apply only after you log out."
++              ? "Snapshot applied. Some settings will apply only after you log out."
 +              : "Snapshot applied. Relog your character to see changes. Do not use 'Save as default' until after relogging.",
 +        );
 +      }
