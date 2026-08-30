@@ -1,0 +1,984 @@
+diff --git a/node-src/services/ini-panels.ts b/node-src/services/ini-panels.ts
+index 25c4cc79..179e31e1 100644
+--- a/node-src/services/ini-panels.ts
++++ b/node-src/services/ini-panels.ts
+@@ -17,6 +17,9 @@ export interface PanelSnapshotEntry {
+   sourceCharacter: string;
+   createdAtMs: number;
+   sizeBytes: number;
++  sections: string[];
++  width?: number;
++  height?: number;
+ }
+
+ const SNAPSHOT_SUFFIX = ".panels.ini";
+@@ -277,20 +280,42 @@ function metadataPath(snapshotDirectory: string, snapshotName: string): string {
+   );
+ }
+
+-async function readDisplayName(
++interface SnapshotMetadata {
++  displayName?: string;
++  sections?: string[];
++  width?: number;
++  height?: number;
++}
++
++async function readSnapshotMetadata(
+   snapshotDirectory: string,
+   snapshotName: string,
+-  fallback: string,
+-): Promise<string> {
++  fallbackDisplayName: string,
++): Promise<{ displayName: string; sections: string[]; width?: number; height?: number }> {
+   try {
+     const parsed = JSON.parse(
+       await readFile(metadataPath(snapshotDirectory, snapshotName), "utf8"),
+-    ) as { displayName?: unknown };
+-    return typeof parsed.displayName === "string"
+-      ? safeDisplayName(parsed.displayName)
+-      : fallback;
++    ) as SnapshotMetadata;
++    const displayName =
++      typeof parsed.displayName === "string"
++        ? safeDisplayName(parsed.displayName)
++        : fallbackDisplayName;
++    const sections =
++      Array.isArray(parsed.sections) &&
++      parsed.sections.every((s) => typeof s === "string")
++        ? (parsed.sections as string[])
++        : [];
++    const width =
++      typeof parsed.width === "number" && Number.isFinite(parsed.width)
++        ? parsed.width
++        : undefined;
++    const height =
++      typeof parsed.height === "number" && Number.isFinite(parsed.height)
++        ? parsed.height
++        : undefined;
++    return { displayName, sections, width, height };
+   } catch {
+-    return fallback;
++    return { displayName: fallbackDisplayName, sections: [] };
+   }
+ }
+
+@@ -302,6 +327,36 @@ function timestampName(date: Date): string {
+     .replace("Z", "");
+ }
+
++export async function listIniSections(iniPath: string): Promise<string[]> {
++  let text: string;
++  try {
++    text = await readFile(iniPath, "utf8");
++  } catch (error) {
++    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
++    throw error;
++  }
++  const sections: string[] = [];
++  for (const match of text.matchAll(/(?:^|\r?\n)\[([^\]\r\n]+)\]/giu)) {
++    sections.push(match[1]);
++  }
++  return sections;
++}
++
++export async function listCharactersInIniDirectory(
++  iniDirectory: string,
++): Promise<string[]> {
++  let names: string[];
++  try {
++    names = await readdir(iniDirectory);
++  } catch (error) {
++    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
++    throw error;
++  }
++  return names
++    .filter((name) => /^.+-5\.ini$/iu.test(name))
++    .map((name) => name.slice(0, -".ini".length - 2));
++}
++
+ export async function listPanelSnapshots(
+   snapshotDirectory: string,
+ ): Promise<PanelSnapshotEntry[]> {
+@@ -316,16 +371,24 @@ export async function listPanelSnapshots(
+       .filter((name) => SNAPSHOT_NAME.test(name))
+       .map(async (name): Promise<PanelSnapshotEntry | undefined> => {
+         const match = SNAPSHOT_NAME.exec(name);
+-        const metadata = await stat(path.join(snapshotDirectory, name)).catch(
++        const fileStat = await stat(path.join(snapshotDirectory, name)).catch(
+           () => undefined,
+         );
+-        if (!match || !metadata?.isFile()) return undefined;
++        if (!match || !fileStat?.isFile()) return undefined;
++        const meta = await readSnapshotMetadata(
++          snapshotDirectory,
++          name,
++          match[2],
++        );
+         return {
+           name,
+-          displayName: await readDisplayName(snapshotDirectory, name, match[2]),
++          displayName: meta.displayName,
+           sourceCharacter: match[2],
+-          createdAtMs: metadata.mtimeMs,
+-          sizeBytes: metadata.size,
++          createdAtMs: fileStat.mtimeMs,
++          sizeBytes: fileStat.size,
++          sections: meta.sections,
++          width: meta.width,
++          height: meta.height,
+         };
+       }),
+   );
+@@ -338,22 +401,44 @@ export async function snapshotCharacterPanels(options: {
+   iniDirectory: string;
+   snapshotDirectory: string;
+   characterName: string;
++  sections?: string[];
++  width?: number;
++  height?: number;
+   now?: Date;
+ }): Promise<PanelSnapshotEntry> {
+   const characterName = safeCharacterName(options.characterName);
++  const sections = options.sections?.length ? options.sections : ["Panels"];
+   const currentIni = path.join(options.iniDirectory, `${characterName}-5.ini`);
+-  const panels = extractPanelsSection(await readFile(currentIni, "utf8"));
++  const iniText = await readFile(currentIni, "utf8");
++  const parts: string[] = [];
++  for (const section of sections) {
++    const extracted = extractNamedSection(iniText, section);
++    if (extracted !== null) parts.push(extracted);
++  }
++  const content = parts.join("\n\n");
+   await mkdir(options.snapshotDirectory, { recursive: true });
+   const name = `${timestampName(options.now ?? new Date())}_${characterName}${SNAPSHOT_SUFFIX}`;
+   const file = path.join(options.snapshotDirectory, name);
+-  await writeFile(file, `${panels}\n`, { encoding: "utf8", flag: "wx" });
+-  const metadata = await stat(file);
++  await writeFile(file, `${content}\n`, { encoding: "utf8", flag: "wx" });
++  const metaObj: SnapshotMetadata = {
++    sections,
++    ...(options.width !== undefined ? { width: options.width } : {}),
++    ...(options.height !== undefined ? { height: options.height } : {}),
++  };
++  const metaFile = metadataPath(options.snapshotDirectory, name);
++  await writeFile(metaFile, `${JSON.stringify(metaObj, null, 2)}\n`, {
++    encoding: "utf8",
++  });
++  const fileStat = await stat(file);
+   return {
+     name,
+     displayName: characterName,
+     sourceCharacter: characterName,
+-    createdAtMs: metadata.mtimeMs,
+-    sizeBytes: metadata.size,
++    createdAtMs: fileStat.mtimeMs,
++    sizeBytes: fileStat.size,
++    sections,
++    width: options.width,
++    height: options.height,
+   };
+ }
+
+@@ -412,20 +497,45 @@ export async function applyPanelSnapshot(options: {
+   snapshotDirectory: string;
+   characterName: string;
+   snapshotName: string;
++  sections?: string[];
+ }): Promise<void> {
+   const characterName = safeCharacterName(options.characterName);
+   const snapshotName = safeSnapshotName(options.snapshotName);
+   const currentIni = path.join(options.iniDirectory, `${characterName}-5.ini`);
+-  const [current, snapshot] = await Promise.all([
++  const snapshotFile = path.join(options.snapshotDirectory, snapshotName);
++  const [current, snapshotText] = await Promise.all([
+     readFile(currentIni, "utf8"),
+-    readFile(path.join(options.snapshotDirectory, snapshotName), "utf8"),
++    readFile(snapshotFile, "utf8"),
+   ]);
++  // Determine which sections to apply: explicit arg > metadata > auto-detect.
++  let sectionsToApply: string[];
++  if (options.sections && options.sections.length > 0) {
++    sectionsToApply = options.sections;
++  } else {
++    const meta = await readSnapshotMetadata(
++      options.snapshotDirectory,
++      snapshotName,
++      "",
++    );
++    if (meta.sections.length > 0) {
++      sectionsToApply = meta.sections;
++    } else {
++      sectionsToApply = await listIniSections(snapshotFile);
++    }
++  }
++  let updated = current;
++  for (const section of sectionsToApply) {
++    const extracted = extractNamedSection(snapshotText, section);
++    if (extracted !== null) {
++      updated = replaceOrAppendNamedSection(updated, section, extracted);
++    }
++  }
+   const temporary = path.join(
+     options.iniDirectory,
+     `.${characterName}-5.panels-${process.pid}-${Date.now()}.tmp`,
+   );
+   try {
+-    await writeFile(temporary, replacePanelsSection(current, snapshot), {
++    await writeFile(temporary, updated, {
+       encoding: "utf8",
+       flag: "wx",
+     });
+diff --git a/node-src/integration.ts b/node-src/integration.ts
+index 1f1f79c0..6f237dc5 100644
+--- a/node-src/integration.ts
++++ b/node-src/integration.ts
+@@ -1,0 +1 @@
++import { watch } from "node:fs";
+@@ -36,6 +37,8 @@ import {
+   applyPanelSnapshot,
+   deletePanelSnapshot,
+   listPanelSnapshots,
++  listIniSections,
++  listCharactersInIniDirectory,
+   getNewCharacterPanelDefaultStatus,
+   renamePanelSnapshot,
+   resolvePanelSnapshotDirectory,
+@@ -360,1 +363,46 @@ export function createLauncherServiceHandlers(
++const DEFERRED_SECTIONS = new Set(["Panels", "Chat"]);
++const _deferredWatchers = new Map<string, () => void>();
++
++function scheduleDeferredApply(job: {
++  characterName: string;
++  snapshotName: string;
++  sections: string[];
++  iniDirectory: string;
++  snapshotDirectory: string;
++  logger?: { info: (message: string, details?: unknown) => void; error: (message: string, details?: unknown) => void };
++}): void {
++  _deferredWatchers.get(job.characterName)?.();
++  const iniPath = path.join(job.iniDirectory, `${job.characterName}-5.ini`);
++  let cancelled = false;
++  let debounce: ReturnType<typeof setTimeout> | null = null;
++  const watcher = watch(iniPath, { persistent: false }, () => {
++    if (cancelled) return;
++    if (debounce) clearTimeout(debounce);
++    debounce = setTimeout(() => {
++      if (cancelled) return;
++      void applyPanelSnapshot({
++        iniDirectory: job.iniDirectory,
++        snapshotDirectory: job.snapshotDirectory,
++        characterName: job.characterName,
++        snapshotName: job.snapshotName,
++        sections: job.sections,
++      })
++        .then(() =>
++          job.logger?.info("[INI panels] deferred apply done", { characterName: job.characterName }),
++        )
++        .catch((err: unknown) =>
++          job.logger?.error("[INI panels] deferred apply failed", {
++            characterName: job.characterName,
++            err: String(err),
++          }),
++        );
++    }, 800);
++  });
++  _deferredWatchers.set(job.characterName, () => {
++    cancelled = true;
++    if (debounce) clearTimeout(debounce);
++    watcher.close();
++  });
++}
++
+ export function createLauncherServiceHandlers(
+@@ -401,7 +446,37 @@ export function createLauncherServiceHandlers(
+         snapshotDirectory: resolvePanelSnapshotDirectory(context.config.file),
+         snapshotName,
+       }),
+-    snapshotCharacterPanels: async (characterName: string) => {
++    listCharacterIniSections: async (characterName: string) => {
++      const config = await context.config.load();
++      const iniDirectory = resolveSpecSwapDirectory({
++        platform: context.platform,
++        environment: context.environment,
++        winePrefix: config.uiOptions.linuxWinePrefix,
++      });
++      if (options.cefLifecycle) {
++        try {
++          await options.cefLifecycle.requestProfileIni("save", characterName);
++        } catch {
++          // game not running or flush failed — read from disk as-is
++        }
++      }
++      return listIniSections(
++        path.join(iniDirectory, `${characterName}-5.ini`),
++      );
++    },
++    listCharactersInIniDirectory: async () => {
++      const config = await context.config.load();
++      const iniDirectory = resolveSpecSwapDirectory({
++        platform: context.platform,
++        environment: context.environment,
++        winePrefix: config.uiOptions.linuxWinePrefix,
++      });
++      return listCharactersInIniDirectory(iniDirectory);
++    },
++    snapshotCharacterPanels: async (
++      characterName: string,
++      sections?: string[],
++    ) => {
+       const pid = await activeDaocProcessId();
+       if (!options.cefLifecycle)
+         throw new Error("CEF game bridge is not configured.");
+@@ -420,14 +488,29 @@ export function createLauncherServiceHandlers(
+         iniDirectory,
+       });
+       await options.cefLifecycle.requestProfileIni("save", characterName);
++      let width: number | undefined;
++      let height: number | undefined;
++      try {
++        const viewport = await options.cefLifecycle.getGameViewport();
++        width = viewport.width;
++        height = viewport.height;
++      } catch {
++        // viewport not critical — omit silently
++      }
+       options.logger?.info("[INI panels] writing panel snapshot", {
+         characterName,
+         snapshotDirectory,
++        sections,
++        width,
++        height,
+       });
+       const entry = await snapshotCharacterPanels({
+         iniDirectory,
+         snapshotDirectory,
+         characterName,
++        sections,
++        width,
++        height,
+       });
+       options.logger?.info("[INI panels] panel snapshot written", entry);
+       return entry;
+@@ -473,7 +556,11 @@ export function createLauncherServiceHandlers(
+         ...viewport,
+       });
+     },
+-    applyPanelSnapshot: async (characterName: string, snapshotName: string) => {
++    applyPanelSnapshot: async (
++      characterName: string,
++      snapshotName: string,
++      sections?: string[],
++    ) => {
+       const pid = await activeDaocProcessId();
+       if (!options.cefLifecycle)
+         throw new Error("CEF game bridge is not configured.");
+@@ -497,15 +584,25 @@ export function createLauncherServiceHandlers(
+         characterName,
+       });
+       await options.cefLifecycle.requestProfileIni("save", characterName);
+-      options.logger?.info("[INI panels] replacing target [Panels] section", {
++      options.logger?.info("[INI panels] replacing target INI sections", {
+         characterName,
+         snapshotName,
++        sections,
+       });
+-      await applyPanelSnapshot({
+-        iniDirectory,
+-        snapshotDirectory,
+-        characterName,
+-        snapshotName,
+-      });
++      const immediate = sections?.filter((s) => !DEFERRED_SECTIONS.has(s));
++      const deferred = sections?.filter((s) => DEFERRED_SECTIONS.has(s)) ?? [];
++      if (!immediate || immediate.length > 0) {
++        await options.cefLifecycle.requestProfileIni("reload", characterName);
++        await applyPanelSnapshot({
++          iniDirectory,
++          snapshotDirectory,
++          characterName,
++          snapshotName,
++          sections: immediate,
++        });
++      }
++      if (deferred.length > 0) {
++        scheduleDeferredApply({ characterName, snapshotName, sections: deferred, iniDirectory, snapshotDirectory, logger: options.logger });
++      }
+       options.logger?.info("[INI panels] requesting live profile reload", {
+         characterName,
+@@ -516,6 +615,70 @@ export function createLauncherServiceHandlers(
+         snapshotName,
+       });
++      return { deferred };
+     },
++    applyPanelSnapshotToAllCharacters: async (
++      snapshotName: string,
++      sections?: string[],
++    ) => {
++      await activeDaocProcessId();
++      if (!options.cefLifecycle)
++        throw new Error("CEF game bridge is not configured.");
++      const config = await context.config.load();
++      const iniDirectory = resolveSpecSwapDirectory({
++        platform: context.platform,
++        environment: context.environment,
++        winePrefix: config.uiOptions.linuxWinePrefix,
++      });
++      const snapshotDirectory = resolvePanelSnapshotDirectory(
++        context.config.file,
++      );
++      const characters = await listCharactersInIniDirectory(iniDirectory);
++      options.logger?.info("[INI panels] applying snapshot to all characters", {
++        snapshotName,
++        sections,
++        characters,
++      });
++      const activeWindows = context.state.activeWindows ?? [];
++      const deferredFor: string[] = [];
++      for (const characterName of characters) {
++        const isActive = activeWindows.includes(characterName);
++        const immediate = isActive
++          ? sections?.filter((s) => !DEFERRED_SECTIONS.has(s))
++          : sections;
++        const deferredSections = isActive
++          ? (sections?.filter((s) => DEFERRED_SECTIONS.has(s)) ?? [])
++          : [];
++        await options.cefLifecycle.requestProfileIni("save", characterName);
++        if (isActive && (!immediate || immediate.length > 0)) {
++          await options.cefLifecycle.requestProfileIni("reload", characterName);
++        }
++        if (!immediate || immediate.length > 0) {
++          await applyPanelSnapshot({
++            iniDirectory,
++            snapshotDirectory,
++            characterName,
++            snapshotName,
++            sections: immediate,
++          });
++        }
++        if (deferredSections.length > 0) {
++          scheduleDeferredApply({
++            characterName,
++            snapshotName,
++            sections: deferredSections,
++            iniDirectory,
++            snapshotDirectory,
++            logger: options.logger,
++          });
++          deferredFor.push(characterName);
++        }
++      }
++      options.logger?.info(
++        "[INI panels] apply-to-all completed",
++        { snapshotName, characters },
++      );
++      return { deferredFor };
++    },
+     watchChatLogForItem: (file: string, signal?: AbortSignal) =>
+       context.chatLog.watch(file, { signal }),
+     cancelChatLogWatch: () => context.chatLog.cancel(),
+diff --git a/electron/main.ts b/electron/main.ts
+index 0cd36842..a206fdac 100644
+--- a/electron/main.ts
++++ b/electron/main.ts
+@@ -990,9 +990,28 @@ async function registerServiceCommands(): Promise<void> {
+       typeof args.snapshotName === "string" ? args.snapshotName : "",
+     ),
+   );
++  registerCommand("list_character_ini_sections", (args) =>
++    handlers.listCharacterIniSections(
++      typeof args.characterName === "string" ? args.characterName : "",
++    ),
++  );
++  registerCommand("list_characters_in_ini_directory", () =>
++    handlers.listCharactersInIniDirectory(),
++  );
+   registerCommand("snapshot_character_panels", (args) =>
+     handlers.snapshotCharacterPanels(
+       typeof args.characterName === "string" ? args.characterName : "",
++      Array.isArray(args.sections)
++        ? args.sections.filter((s): s is string => typeof s === "string")
++        : undefined,
++    ),
++  );
++  registerCommand("apply_panel_snapshot_to_all", (args) =>
++    handlers.applyPanelSnapshotToAllCharacters(
++      typeof args.snapshotName === "string" ? args.snapshotName : "",
++      Array.isArray(args.sections)
++        ? args.sections.filter((s): s is string => typeof s === "string")
++        : undefined,
+     ),
+   );
+   registerCommand("get_new_character_panel_default_status", () =>
+@@ -1010,6 +1029,9 @@ async function registerServiceCommands(): Promise<void> {
+     handlers.applyPanelSnapshot(
+       typeof args.characterName === "string" ? args.characterName : "",
+       typeof args.snapshotName === "string" ? args.snapshotName : "",
++      Array.isArray(args.sections)
++        ? args.sections.filter((s): s is string => typeof s === "string")
++        : undefined,
+     ),
+   );
+   registerCommand("cancel_chat_log_watch", () => handlers.cancelChatLogWatch());
+diff --git a/src/settings/panels.tsx b/src/settings/panels.tsx
+index 79487100..4ab04298 100644
+--- a/src/settings/panels.tsx
++++ b/src/settings/panels.tsx
+@@ -1181,15 +1181,101 @@ interface NewCharacterPanelDefaultStatus {
+   canRestore: boolean;
+ }
+
++interface PanelSnapshotEntry {
++  name: string;
++  displayName: string;
++  sourceCharacter: string;
++  createdAtMs: number;
++  sizeBytes: number;
++  sections: string[];
++  width?: number;
++  height?: number;
++}
++
++const RELOG_REQUIRED_SECTIONS = new Set(["Panels", "Chat"]);
++
++interface SectionPickerProps {
++  sections: string[];
++  selected: string[];
++  onChange: (next: string[]) => void;
++  showRelogHint?: boolean;
++}
++
++function SectionPicker({ sections, selected, onChange, showRelogHint }: SectionPickerProps) {
++  const toggle = (section: string) => {
++    onChange(
++      selected.includes(section)
++        ? selected.filter((s) => s !== section)
++        : [...selected, section],
++    );
++  };
++  const sorted = [
++    ...sections.filter((s) => !RELOG_REQUIRED_SECTIONS.has(s)),
++    ...sections.filter((s) => RELOG_REQUIRED_SECTIONS.has(s)),
++  ];
++  return (
++    <div className="flex flex-wrap gap-2 py-1">
++      {sorted.map((section) => (
++        <label
++          key={section}
++          className="flex items-center gap-1 cursor-pointer text-sm select-none"
++          style={{ color: "inherit" }}
++        >
++          <input
++            type="checkbox"
++            checked={selected.includes(section)}
++            onChange={() => toggle(section)}
++            className="accent-current"
++          />
++          {section}
++          {showRelogHint && RELOG_REQUIRED_SECTIONS.has(section) ? " (on logout)" : ""}
++        </label>
++      ))}
++    </div>
++  );
++}
++
++type PickerMode =
++  | { kind: "create" }
++  | { kind: "apply"; snapshotName: string; target: "current" | "all" };
++
+ function IniSettingsPanel() {
+   const { playerInfo } = usePlayerInfo();
+   const characterName =
+     playerInfo?.isValid && playerInfo.name ? playerInfo.name.trim() : "";
++
++  // Snapshot list
++  const [snapshots, setSnapshots] = useState<PanelSnapshotEntry[]>([]);
++  const [snapshotsLoaded, setSnapshotsLoaded] = useState(false);
++
++  // Section picker state
++  const [pickerMode, setPickerMode] = useState<PickerMode | null>(null);
++  const [pickerSections, setPickerSections] = useState<string[]>([]);
++  const [pickerSelected, setPickerSelected] = useState<string[]>([]);
++  const [pendingDelete, setPendingDelete] = useState<PanelSnapshotEntry | null>(null);
++  const [pendingRestoreDefault, setPendingRestoreDefault] = useState(false);
++
++  // Status
+   const [status, setStatus] = useState("");
+   const [isError, setIsError] = useState(false);
+   const [busy, setBusy] = useState(false);
++
++  // Panel defaults
+   const [defaultStatus, setDefaultStatus] =
+     useState<NewCharacterPanelDefaultStatus | null>(null);
++
++  const refreshSnapshots = useCallback(async () => {
++    if (!isTauri && !isCefInGame) return;
++    try {
++      const list = await invoke<PanelSnapshotEntry[]>("list_panel_snapshots");
++      setSnapshots(list);
++      setSnapshotsLoaded(true);
++    } catch (err) {
++      console.error("[INI panels] failed to list snapshots", err);
++      setSnapshotsLoaded(true);
++    }
++  }, []);
++
+   const refreshDefault = useCallback(async () => {
+     if (!characterName) {
+       setDefaultStatus(null);
+@@ -1204,14 +1282,147 @@ function IniSettingsPanel() {
+     } catch (error) {
+       console.error("[INI panels] failed to read new-character default", error);
+       setDefaultStatus(null);
+-      setIsError(true);
+-      setStatus(String(error));
+     }
+   }, [characterName]);
+
+   useEffect(() => {
++    void refreshSnapshots();
+     void refreshDefault();
+-  }, [refreshDefault]);
++  }, [refreshSnapshots, refreshDefault]);
++
++  // --- Create snapshot flow ---
++
++  const openCreatePicker = async () => {
++    setStatus("");
++    setIsError(false);
++    let sections: string[] = [];
++    if (characterName) {
++      try {
++        sections = await invoke<string[]>("list_character_ini_sections", {
++          characterName,
++        });
++      } catch {
++        // list_character_ini_sections may be unavailable in CEF; use known DAoC sections
++        // (extractNamedSection skips any that don't exist for this character)
++        sections = [
++          "Panels",
++          "Chat",
++          "Quickbar",
++          "Quickbar2",
++          "Quickbar3",
++          "Macros",
++          "QuickBinds",
++          "NameOptions",
++          "Camera",
++          "ToolTips",
++          "HouseHelp",
++        ];
++      }
++    }
++    if (sections.length === 0) sections = ["Panels"];
++    setPickerSections(sections);
++    setPickerSelected([...sections]);
++    setPickerMode({ kind: "create" });
++  };
++
++  const confirmCreate = async () => {
++    if (!characterName) return;
++    setBusy(true);
++    setStatus("");
++    setIsError(false);
++    const sections = pickerSelected.length > 0 ? pickerSelected : ["Panels"];
++    setPickerMode(null);
++    try {
++      await invoke("snapshot_character_panels", { characterName, sections });
++      setStatus("Snapshot saved.");
++      await refreshSnapshots();
++    } catch (err) {
++      setIsError(true);
++      setStatus(String(err));
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  // --- Apply snapshot flow ---
++
++  const openApplyPicker = (
++    entry: PanelSnapshotEntry,
++    target: "current" | "all",
++  ) => {
++    setStatus("");
++    setIsError(false);
++    const sections =
++      entry.sections.length > 0 ? entry.sections : ["Panels"];
++    setPickerSections(sections);
++    setPickerSelected([...sections]);
++    setPickerMode({ kind: "apply", snapshotName: entry.name, target });
++  };
++
++  const confirmApply = async () => {
++    if (pickerMode?.kind !== "apply") return;
++    const { snapshotName, target } = pickerMode;
++    setBusy(true);
++    setStatus("");
++    setIsError(false);
++    const sections = pickerSelected.length > 0 ? pickerSelected : undefined;
++    setPickerMode(null);
++    try {
++      if (target === "all") {
++        const { deferredFor } = await invoke<{ deferredFor: string[] }>("apply_panel_snapshot_to_all", { snapshotName, sections });
++        setStatus(
++          deferredFor.length > 0
++            ? "Snapshot applied to all characters. Chat will apply to active characters when they log out."
++            : "Snapshot applied to all characters. Relog each character to see changes.",
++        );
++      } else {
++        const { deferred } = await invoke<{ deferred: string[] }>("apply_panel_snapshot", {
++          characterName,
++          snapshotName,
++          sections,
++        });
++        setStatus(
++          deferred.length > 0
++            ? "Snapshot applied. Chat will apply automatically when you log out."
++            : "Snapshot applied. Relog your character to see changes. Do not use 'Save as default' until after relogging.",
++        );
++      }
++    } catch (err) {
++      setIsError(true);
++      setStatus(String(err));
++      // File may have been deleted externally — refresh so the stale entry disappears.
++      if (String(err).includes("ENOENT")) await refreshSnapshots();
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  const cancelPicker = () => setPickerMode(null);
++
++  // --- Delete snapshot ---
++
++  const onDelete = (entry: PanelSnapshotEntry) => setPendingDelete(entry);
++
++  const confirmDelete = async () => {
++    if (!pendingDelete) return;
++    const entry = pendingDelete;
++    setPendingDelete(null);
++    setBusy(true);
++    setStatus("");
++    setIsError(false);
++    try {
++      await invoke("delete_panel_snapshot", { snapshotName: entry.name });
++      setStatus("Snapshot deleted.");
++      await refreshSnapshots();
++    } catch (err) {
++      setIsError(true);
++      setStatus(String(err));
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  // --- Panel defaults ---
+
+   const saveAsDefault = async () => {
+     if (!characterName || !defaultStatus) return;
+@@ -1274,8 +1476,167 @@ function IniSettingsPanel() {
+     }
+   };
+
++  if (!isTauri && !isCefInGame) {
++    return (
++      <SettingsEmptyState>
++        Panel snapshots are only available in the Blackthorn launcher app.
++      </SettingsEmptyState>
++    );
++  }
++
++  const isPickerOpen = pickerMode !== null;
++  const isPendingDeleteOpen = pendingDelete !== null;
++
++  const doRestoreDefault = async () => {
++    setPendingRestoreDefault(false);
++    setBusy(true);
++    setIsError(false);
++    setStatus("");
++    try {
++      const next = await invoke<NewCharacterPanelDefaultStatus>(
++        "restore_new_character_panel_default",
++      );
++      setDefaultStatus(next);
++      setStatus(
++        `Restored the game panel default for ${next.width}×${next.height}.`,
++      );
++    } catch (error) {
++      setIsError(true);
++      setStatus(String(error));
++    } finally {
++      setBusy(false);
++    }
++  };
++
+   return (
+     <>
++      <SettingsSectionLabel>Panel snapshots</SettingsSectionLabel>
++      <SettingsText tone="muted">
++        Save a character's panel layout as a named snapshot, then apply it to
++        any character — or all characters at once.
++      </SettingsText>
++
++      {/* Action bar */}
++      <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
++        <SettingsButton
++          disabled={busy || !characterName || isPickerOpen || isPendingDeleteOpen}
++          onClick={() => void openCreatePicker()}
++        >
++          Create new snapshot
++        </SettingsButton>
++      </div>
++
++      {/* Inline section picker */}
++      {isPickerOpen && (
++        <div
++          className="border border-current rounded p-3 mb-2"
++          style={{ opacity: 0.9 }}
++        >
++          <SettingsText bold>
++            {pickerMode?.kind === "create"
++              ? "Choose sections to save:"
++              : "Choose sections to apply:"}
++          </SettingsText>
++          <SectionPicker
++            sections={pickerSections}
++            selected={pickerSelected}
++            onChange={setPickerSelected}
++            showRelogHint={pickerMode?.kind !== "create"}
++          />
++          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
++            <SettingsButton
++              disabled={busy || pickerSelected.length === 0}
++              onClick={() =>
++                void (pickerMode?.kind === "create"
++                  ? confirmCreate()
++                  : confirmApply())
++              }
++            >
++              {pickerMode?.kind === "create" ? "Save snapshot" : "Apply"}
++            </SettingsButton>
++            <SettingsButton disabled={busy} onClick={cancelPicker}>
++              Cancel
++            </SettingsButton>
++          </div>
++        </div>
++      )}
++
++      {/* Inline delete confirmation */}
++      {isPendingDeleteOpen && (
++        <div
++          className="border border-current rounded p-3 mb-2"
++          style={{ opacity: 0.9 }}
++        >
++          <SettingsText bold>
++            Delete &quot;{pendingDelete?.displayName}&quot;?
++          </SettingsText>
++          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
++            <SettingsButton disabled={busy} onClick={() => void confirmDelete()}>
++              Delete
++            </SettingsButton>
++            <SettingsButton disabled={busy} onClick={() => setPendingDelete(null)}>
++              Cancel
++            </SettingsButton>
++          </div>
++        </div>
++      )}
++
++      {status && (
++        <SettingsText tone={isError ? "danger" : "success"}>
++          {status}
++        </SettingsText>
++      )}
++
++      {/* Snapshot list */}
++      {snapshotsLoaded && snapshots.length === 0 && (
++        <SettingsEmptyState>No snapshots yet.</SettingsEmptyState>
++      )}
++      {snapshots.map((entry) => {
++        const date = new Date(entry.createdAtMs).toLocaleString();
++        const res =
++          entry.width && entry.height
++            ? `${entry.width}×${entry.height}`
++            : null;
++        const sectionList =
++          entry.sections.length > 0 ? entry.sections.join(", ") : "Panels";
++        const description = [date, res, sectionList]
++          .filter(Boolean)
++          .join(" · ");
++        return (
++          <SettingRow
++            key={entry.name}
++            title={entry.displayName}
++            description={description}
++            control={
++              <div style={{ display: "flex", gap: 4 }}>
++                <SettingsButton
++                  disabled={busy || !characterName || isPickerOpen || isPendingDeleteOpen}
++                  onClick={() => openApplyPicker(entry, "current")}
++                >
++                  Apply
++                </SettingsButton>
++                <SettingsButton
++                  disabled={busy || isPickerOpen || isPendingDeleteOpen}
++                  onClick={() => openApplyPicker(entry, "all")}
++                >
++                  All chars
++                </SettingsButton>
++                <SettingsButton
++                  disabled={busy || isPickerOpen || isPendingDeleteOpen}
++                  onClick={() => onDelete(entry)}
++                >
++                  Delete
++                </SettingsButton>
++              </div>
++            }
++          />
++        );
++      })}
++
++      {/* Panel defaults */}
+       <SettingsSectionLabel>Panel defaults</SettingsSectionLabel>
++      <SettingsText tone="muted">
++        After applying a snapshot, relog before saving or restoring panel defaults.
++      </SettingsText>
+       {characterName && defaultStatus ? (
+         <SettingsText>
+@@ -1299,2 +1659,21 @@ function IniSettingsPanel() {
+       )}
++      {pendingRestoreDefault && (
++        <div
++          className="border border-current rounded p-3 mb-2"
++          style={{ opacity: 0.9 }}
++        >
++          <SettingsText bold>
++            Restore the game default for {defaultStatus?.width}×
++            {defaultStatus?.height}?
++          </SettingsText>
++          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
++            <SettingsButton disabled={busy} onClick={() => void doRestoreDefault()}>
++              Restore
++            </SettingsButton>
++            <SettingsButton disabled={busy} onClick={() => setPendingRestoreDefault(false)}>
++              Cancel
++            </SettingsButton>
++          </div>
++        </div>
++      )}
+       <div style={{ display: "flex", gap: 6 }}>
+@@ -1304,7 +1683,7 @@ function IniSettingsPanel() {
+         >
+           {busy
+             ? "Working…"
+-            : `Save ${characterName ?? "current character"}'s panels as default`}
++            : `Save ${characterName || "current character"}'s panels as default`}
+         </SettingsButton>
+         <SettingsButton
+           disabled={
+@@ -1313,4 +1692,4 @@ function IniSettingsPanel() {
+-          onClick={() => void restoreDefault()}
++          onClick={isCefInGame ? () => setPendingRestoreDefault(true) : () => void restoreDefault()}
+         >
+           Restore game default
+         </SettingsButton>

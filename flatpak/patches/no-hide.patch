@@ -1,5 +1,4 @@
 diff --git a/electron/launcher-visibility.ts b/electron/launcher-visibility.ts
-index 67a39aad..9dfde828 100644
 --- a/electron/launcher-visibility.ts
 +++ b/electron/launcher-visibility.ts
 @@ -21,6 +21,7 @@ export interface LauncherVisibilityController {
@@ -9,12 +8,22 @@ index 67a39aad..9dfde828 100644
 +  noHideForGame?: boolean;
  }): LauncherVisibilityController {
    let hiddenForGame = false;
- 
+
 @@ -39,6 +40,7 @@ export function createLauncherVisibilityController(options: {
    };
- 
+
    const hideForGame = (): void => {
 +    if (options.noHideForGame) return;
      const launcher = getUsableLauncher();
      if (!launcher) return;
      hiddenForGame = true;
+diff --git a/electron/main.ts b/electron/main.ts
+--- a/electron/main.ts
++++ b/electron/main.ts
+@@ -1971,6 +1971,7 @@ let appQuitRequested = false;
+
+ const launcherVisibility = createLauncherVisibilityController({
+   getLauncher: () => getWindow("launcher"),
++  noHideForGame: app.commandLine.hasSwitch("no-hide"),
+ });
+
