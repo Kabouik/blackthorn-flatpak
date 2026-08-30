@@ -245,7 +245,7 @@ index 1f1f79c0..6f237dc5 100644
    renamePanelSnapshot,
    resolvePanelSnapshotDirectory,
 @@ -360,1 +363,46 @@ export function createLauncherServiceHandlers(
-+const DEFERRED_SECTIONS = new Set(["Chat"]);
++const DEFERRED_SECTIONS = new Set(["Panels", "Chat"]);
 +const _deferredWatchers = new Map<string, () => void>();
 +
 +function scheduleDeferredApply(job: {
@@ -373,7 +373,7 @@ index 1f1f79c0..6f237dc5 100644
        const pid = await activeDaocProcessId();
        if (!options.cefLifecycle)
          throw new Error("CEF game bridge is not configured.");
-@@ -497,15 +584,25 @@ export function createLauncherServiceHandlers(
+@@ -497,15 +584,21 @@ export function createLauncherServiceHandlers(
          characterName,
        });
        await options.cefLifecycle.requestProfileIni("save", characterName);
@@ -389,24 +389,21 @@ index 1f1f79c0..6f237dc5 100644
 -        characterName,
 -        snapshotName,
 -      });
-+      const immediate = sections?.filter((s) => !DEFERRED_SECTIONS.has(s));
 +      const deferred = sections?.filter((s) => DEFERRED_SECTIONS.has(s)) ?? [];
-+      if (!immediate || immediate.length > 0) {
-+        await options.cefLifecycle.requestProfileIni("reload", characterName);
-+        await applyPanelSnapshot({
-+          iniDirectory,
-+          snapshotDirectory,
-+          characterName,
-+          snapshotName,
-+          sections: immediate,
-+        });
-+      }
++      await options.cefLifecycle.requestProfileIni("reload", characterName);
++      await applyPanelSnapshot({
++        iniDirectory,
++        snapshotDirectory,
++        characterName,
++        snapshotName,
++        sections,
++      });
 +      if (deferred.length > 0) {
 +        scheduleDeferredApply({ characterName, snapshotName, sections: deferred, iniDirectory, snapshotDirectory, logger: options.logger });
 +      }
        options.logger?.info("[INI panels] requesting live profile reload", {
          characterName,
-@@ -516,6 +615,70 @@ export function createLauncherServiceHandlers(
+@@ -516,6 +611,65 @@ export function createLauncherServiceHandlers(
          snapshotName,
        });
 +      return { deferred };
@@ -437,25 +434,20 @@ index 1f1f79c0..6f237dc5 100644
 +      const deferredFor: string[] = [];
 +      for (const characterName of characters) {
 +        const isActive = activeWindows.includes(characterName);
-+        const immediate = isActive
-+          ? sections?.filter((s) => !DEFERRED_SECTIONS.has(s))
-+          : sections;
 +        const deferredSections = isActive
 +          ? (sections?.filter((s) => DEFERRED_SECTIONS.has(s)) ?? [])
 +          : [];
 +        await options.cefLifecycle.requestProfileIni("save", characterName);
-+        if (isActive && (!immediate || immediate.length > 0)) {
++        if (isActive) {
 +          await options.cefLifecycle.requestProfileIni("reload", characterName);
 +        }
-+        if (!immediate || immediate.length > 0) {
-+          await applyPanelSnapshot({
-+            iniDirectory,
-+            snapshotDirectory,
-+            characterName,
-+            snapshotName,
-+            sections: immediate,
-+          });
-+        }
++        await applyPanelSnapshot({
++          iniDirectory,
++          snapshotDirectory,
++          characterName,
++          snapshotName,
++          sections,
++        });
 +        if (deferredSections.length > 0) {
 +          scheduleDeferredApply({
 +            characterName,
