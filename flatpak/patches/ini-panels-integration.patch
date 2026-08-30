@@ -13,8 +13,8 @@ index 1f1f79c0..6f237dc5 100644
    getNewCharacterPanelDefaultStatus,
    renamePanelSnapshot,
    resolvePanelSnapshotDirectory,
-@@ -360,1 +363,48 @@ export function createLauncherServiceHandlers(
-+const DEFERRED_SECTIONS = new Set(["Chat"]);
+@@ -360,1 +363,46 @@ export function createLauncherServiceHandlers(
++const DEFERRED_SECTIONS = new Set(["Panels", "Chat"]);
 +const _deferredWatchers = new Map<string, () => void>();
 +
 +function scheduleDeferredApply(job: {
@@ -27,15 +27,13 @@ index 1f1f79c0..6f237dc5 100644
 +}): void {
 +  _deferredWatchers.get(job.characterName)?.();
 +  const iniPath = path.join(job.iniDirectory, `${job.characterName}-5.ini`);
-+  let settled = false;
++  let cancelled = false;
 +  let debounce: ReturnType<typeof setTimeout> | null = null;
 +  const watcher = watch(iniPath, { persistent: false }, () => {
-+    if (settled) return;
++    if (cancelled) return;
 +    if (debounce) clearTimeout(debounce);
 +    debounce = setTimeout(() => {
-+      settled = true;
-+      watcher.close();
-+      _deferredWatchers.delete(job.characterName);
++      if (cancelled) return;
 +      void applyPanelSnapshot({
 +        iniDirectory: job.iniDirectory,
 +        snapshotDirectory: job.snapshotDirectory,
@@ -55,7 +53,7 @@ index 1f1f79c0..6f237dc5 100644
 +    }, 800);
 +  });
 +  _deferredWatchers.set(job.characterName, () => {
-+    settled = true;
++    cancelled = true;
 +    if (debounce) clearTimeout(debounce);
 +    watcher.close();
 +  });

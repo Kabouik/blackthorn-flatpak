@@ -17,7 +17,7 @@ index 79487100..4ab04298 100644
 +  height?: number;
 +}
 +
-+const RELOG_REQUIRED_SECTIONS = new Set(["Chat"]);
++const RELOG_REQUIRED_SECTIONS = new Set(["Panels", "Chat"]);
 +
 +interface SectionPickerProps {
 +  sections: string[];
