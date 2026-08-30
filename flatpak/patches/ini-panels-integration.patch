@@ -13,55 +13,55 @@ index 1f1f79c0..6f237dc5 100644
    getNewCharacterPanelDefaultStatus,
    renamePanelSnapshot,
    resolvePanelSnapshotDirectory,
-@@ -399,4 +401,48 @@ export function createLauncherServiceHandlers(
- ): LauncherServiceHandlers {
-   const { context, options } = params;
-   const activeDaocProcessId = createActiveDaocProcessIdGetter(params);
-+  const DEFERRED_SECTIONS = new Set(["Chat"]);
-+  const deferredWatchers = new Map<string, () => void>();
-+  const scheduleDeferredApply = (job: {
-+    characterName: string;
-+    snapshotName: string;
-+    sections: string[];
-+    iniDirectory: string;
-+    snapshotDirectory: string;
-+  }): void => {
-+    deferredWatchers.get(job.characterName)?.();
-+    const iniPath = path.join(job.iniDirectory, `${job.characterName}-5.ini`);
-+    let settled = false;
-+    let debounce: ReturnType<typeof setTimeout> | null = null;
-+    const watcher = watch(iniPath, { persistent: false }, (eventType) => {
-+      if (settled || eventType !== "change") return;
-+      if (debounce) clearTimeout(debounce);
-+      debounce = setTimeout(() => {
-+        settled = true;
-+        watcher.close();
-+        deferredWatchers.delete(job.characterName);
-+        void applyPanelSnapshot({
-+          iniDirectory: job.iniDirectory,
-+          snapshotDirectory: job.snapshotDirectory,
-+          characterName: job.characterName,
-+          snapshotName: job.snapshotName,
-+          sections: job.sections,
-+        })
-+          .then(() =>
-+            options.logger?.info("[INI panels] deferred apply done", { characterName: job.characterName }),
-+          )
-+          .catch((err: unknown) =>
-+            options.logger?.error("[INI panels] deferred apply failed", {
-+              characterName: job.characterName,
-+              err: String(err),
-+            }),
-+          );
-+      }, 800);
-+    });
-+    deferredWatchers.set(job.characterName, () => {
+@@ -360,1 +363,48 @@ export function createLauncherServiceHandlers(
++const DEFERRED_SECTIONS = new Set(["Chat"]);
++const _deferredWatchers = new Map<string, () => void>();
++
++function scheduleDeferredApply(job: {
++  characterName: string;
++  snapshotName: string;
++  sections: string[];
++  iniDirectory: string;
++  snapshotDirectory: string;
++  logger?: { info: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
++}): void {
++  _deferredWatchers.get(job.characterName)?.();
++  const iniPath = path.join(job.iniDirectory, `${job.characterName}-5.ini`);
++  let settled = false;
++  let debounce: ReturnType<typeof setTimeout> | null = null;
++  const watcher = watch(iniPath, { persistent: false }, (eventType) => {
++    if (settled || eventType !== "change") return;
++    if (debounce) clearTimeout(debounce);
++    debounce = setTimeout(() => {
 +      settled = true;
-+      if (debounce) clearTimeout(debounce);
 +      watcher.close();
-+    });
-+  };
-   return {
++      _deferredWatchers.delete(job.characterName);
++      void applyPanelSnapshot({
++        iniDirectory: job.iniDirectory,
++        snapshotDirectory: job.snapshotDirectory,
++        characterName: job.characterName,
++        snapshotName: job.snapshotName,
++        sections: job.sections,
++      })
++        .then(() =>
++          job.logger?.info("[INI panels] deferred apply done", { characterName: job.characterName }),
++        )
++        .catch((err: unknown) =>
++          job.logger?.error("[INI panels] deferred apply failed", {
++            characterName: job.characterName,
++            err: String(err),
++          }),
++        );
++    }, 800);
++  });
++  _deferredWatchers.set(job.characterName, () => {
++    settled = true;
++    if (debounce) clearTimeout(debounce);
++    watcher.close();
++  });
++}
++
+ export function createLauncherServiceHandlers(
 @@ -401,7 +446,37 @@ export function createLauncherServiceHandlers(
          snapshotDirectory: resolvePanelSnapshotDirectory(context.config.file),
          snapshotName,
@@ -173,11 +173,11 @@ index 1f1f79c0..6f237dc5 100644
 +        });
 +      }
 +      if (deferred.length > 0) {
-+        scheduleDeferredApply({ characterName, snapshotName, sections: deferred, iniDirectory, snapshotDirectory });
++        scheduleDeferredApply({ characterName, snapshotName, sections: deferred, iniDirectory, snapshotDirectory, logger: options.logger });
 +      }
        options.logger?.info("[INI panels] requesting live profile reload", {
          characterName,
-@@ -516,6 +615,69 @@ export function createLauncherServiceHandlers(
+@@ -516,6 +615,70 @@ export function createLauncherServiceHandlers(
          snapshotName,
        });
 +      return { deferred };
@@ -234,6 +234,7 @@ index 1f1f79c0..6f237dc5 100644
 +            sections: deferredSections,
 +            iniDirectory,
 +            snapshotDirectory,
++            logger: options.logger,
 +          });
 +          deferredFor.push(characterName);
 +        }
