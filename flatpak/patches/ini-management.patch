@@ -524,7 +524,7 @@ diff --git a/src/settings/panels.tsx b/src/settings/panels.tsx
 index 79487100..4ab04298 100644
 --- a/src/settings/panels.tsx
 +++ b/src/settings/panels.tsx
-@@ -1181,15 +1181,101 @@ interface NewCharacterPanelDefaultStatus {
+@@ -1181,15 +1181,102 @@ interface NewCharacterPanelDefaultStatus {
    canRestore: boolean;
  }
 
@@ -601,6 +601,7 @@ index 79487100..4ab04298 100644
 +  const [pickerSelected, setPickerSelected] = useState<string[]>([]);
 +  const [pendingDelete, setPendingDelete] = useState<PanelSnapshotEntry | null>(null);
 +  const [pendingRestoreDefault, setPendingRestoreDefault] = useState(false);
++  const [pendingApplyAll, setPendingApplyAll] = useState<PanelSnapshotEntry | null>(null);
 +
 +  // Status
    const [status, setStatus] = useState("");
@@ -777,7 +778,7 @@ index 79487100..4ab04298 100644
 
    const saveAsDefault = async () => {
      if (!characterName || !defaultStatus) return;
-@@ -1274,8 +1476,167 @@ function IniSettingsPanel() {
+@@ -1274,8 +1476,194 @@ function IniSettingsPanel() {
      }
    };
 
@@ -791,6 +792,7 @@ index 79487100..4ab04298 100644
 +
 +  const isPickerOpen = pickerMode !== null;
 +  const isPendingDeleteOpen = pendingDelete !== null;
++  const isPendingApplyAllOpen = pendingApplyAll !== null;
 +
 +  const doRestoreDefault = async () => {
 +    setPendingRestoreDefault(false);
@@ -824,7 +826,7 @@ index 79487100..4ab04298 100644
 +      {/* Action bar */}
 +      <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
 +        <SettingsButton
-+          disabled={busy || !characterName || isPickerOpen || isPendingDeleteOpen}
++          disabled={busy || !characterName || isPickerOpen || isPendingDeleteOpen || isPendingApplyAllOpen}
 +          onClick={() => void openCreatePicker()}
 +        >
 +          Create new snapshot
@@ -860,6 +862,32 @@ index 79487100..4ab04298 100644
 +              {pickerMode?.kind === "create" ? "Save snapshot" : "Apply"}
 +            </SettingsButton>
 +            <SettingsButton disabled={busy} onClick={cancelPicker}>
++              Cancel
++            </SettingsButton>
++          </div>
++        </div>
++      )}
++
++      {/* "Apply to all" confirmation */}
++      {isPendingApplyAllOpen && (
++        <div
++          className="border border-current rounded p-3 mb-2"
++          style={{ opacity: 0.9 }}
++        >
++          <SettingsText bold>
++            This will overwrite those sections on all your existing chars. Confirm?
++          </SettingsText>
++          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
++            <SettingsButton
++              disabled={busy}
++              onClick={() => {
++                openApplyPicker(pendingApplyAll!, "all");
++                setPendingApplyAll(null);
++              }}
++            >
++              Confirm
++            </SettingsButton>
++            <SettingsButton disabled={busy} onClick={() => setPendingApplyAll(null)}>
 +              Cancel
 +            </SettingsButton>
 +          </div>
@@ -915,19 +943,19 @@ index 79487100..4ab04298 100644
 +            control={
 +              <div style={{ display: "flex", gap: 4 }}>
 +                <SettingsButton
-+                  disabled={busy || !characterName || isPickerOpen || isPendingDeleteOpen}
++                  disabled={busy || !characterName || isPickerOpen || isPendingDeleteOpen || isPendingApplyAllOpen}
 +                  onClick={() => openApplyPicker(entry, "current")}
 +                >
 +                  Apply
 +                </SettingsButton>
 +                <SettingsButton
-+                  disabled={busy || isPickerOpen || isPendingDeleteOpen}
-+                  onClick={() => openApplyPicker(entry, "all")}
++                  disabled={busy || isPickerOpen || isPendingDeleteOpen || isPendingApplyAllOpen}
++                  onClick={() => setPendingApplyAll(entry)}
 +                >
 +                  All chars
 +                </SettingsButton>
 +                <SettingsButton
-+                  disabled={busy || isPickerOpen || isPendingDeleteOpen}
++                  disabled={busy || isPickerOpen || isPendingDeleteOpen || isPendingApplyAllOpen}
 +                  onClick={() => onDelete(entry)}
 +                >
 +                  Delete
