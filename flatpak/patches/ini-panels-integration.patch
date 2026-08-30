@@ -29,8 +29,8 @@ index 1f1f79c0..6f237dc5 100644
 +  const iniPath = path.join(job.iniDirectory, `${job.characterName}-5.ini`);
 +  let settled = false;
 +  let debounce: ReturnType<typeof setTimeout> | null = null;
-+  const watcher = watch(iniPath, { persistent: false }, (eventType) => {
-+    if (settled || eventType !== "change") return;
++  const watcher = watch(iniPath, { persistent: false }, () => {
++    if (settled) return;
 +    if (debounce) clearTimeout(debounce);
 +    debounce = setTimeout(() => {
 +      settled = true;
