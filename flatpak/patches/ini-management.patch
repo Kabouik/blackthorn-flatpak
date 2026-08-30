@@ -619,7 +619,7 @@ index 79487100..4ab04298 100644
    const refreshDefault = useCallback(async () => {
      if (!characterName) {
        setDefaultStatus(null);
-@@ -1204,14 +1282,153 @@ function IniSettingsPanel() {
+@@ -1204,14 +1282,146 @@ function IniSettingsPanel() {
      } catch (error) {
        console.error("[INI panels] failed to read new-character default", error);
        setDefaultStatus(null);
