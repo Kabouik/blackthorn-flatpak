@@ -23,7 +23,7 @@ index 1f1f79c0..6f237dc5 100644
 +  sections: string[];
 +  iniDirectory: string;
 +  snapshotDirectory: string;
-+  logger?: { info: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
++  logger?: { info: (message: string, details?: unknown) => void; error: (message: string, details?: unknown) => void };
 +}): void {
 +  _deferredWatchers.get(job.characterName)?.();
 +  const iniPath = path.join(job.iniDirectory, `${job.characterName}-5.ini`);
