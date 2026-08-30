@@ -245,7 +245,7 @@ index 1f1f79c0..6f237dc5 100644
    renamePanelSnapshot,
    resolvePanelSnapshotDirectory,
 @@ -360,1 +363,46 @@ export function createLauncherServiceHandlers(
-+const DEFERRED_SECTIONS = new Set(["Panels", "Chat"]);
++const DEFERRED_SECTIONS = new Set(["Chat"]);
 +const _deferredWatchers = new Map<string, () => void>();
 +
 +function scheduleDeferredApply(job: {
@@ -539,7 +539,7 @@ index 79487100..4ab04298 100644
 +  height?: number;
 +}
 +
-+const RELOG_REQUIRED_SECTIONS = new Set(["Panels", "Chat"]);
++const RELOG_REQUIRED_SECTIONS = new Set(["Chat"]);
 +
 +interface SectionPickerProps {
 +  sections: string[];
