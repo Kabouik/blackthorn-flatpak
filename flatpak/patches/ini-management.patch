@@ -180,7 +180,7 @@ index 25c4cc79..179e31e1 100644
    };
  }
 
-@@ -412,20 +497,48 @@ export async function applyPanelSnapshot(options: {
+@@ -412,23 +497,48 @@ export async function applyPanelSnapshot(options: {
    snapshotDirectory: string;
    characterName: string;
    snapshotName: string;
@@ -403,7 +403,7 @@ index 1f1f79c0..6f237dc5 100644
 +      }
        options.logger?.info("[INI panels] requesting live profile reload", {
          characterName,
-@@ -516,6 +612,68 @@ export function createLauncherServiceHandlers(
+@@ -516,9 +612,68 @@ export function createLauncherServiceHandlers(
          snapshotName,
        });
 +      return { deferred };
@@ -502,7 +502,7 @@ index 0cd36842..a206fdac 100644
      ),
    );
    registerCommand("get_new_character_panel_default_status", () =>
-@@ -1010,6 +1029,12 @@ async function registerServiceCommands(): Promise<void> {
+@@ -1010,9 +1029,12 @@ async function registerServiceCommands(): Promise<void> {
      handlers.applyPanelSnapshot(
        typeof args.characterName === "string" ? args.characterName : "",
        typeof args.snapshotName === "string" ? args.snapshotName : "",
