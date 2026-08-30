@@ -2,7 +2,7 @@ diff --git a/src/settings/panels.tsx b/src/settings/panels.tsx
 index 79487100..4ab04298 100644
 --- a/src/settings/panels.tsx
 +++ b/src/settings/panels.tsx
-@@ -1181,15 +1181,93 @@ interface NewCharacterPanelDefaultStatus {
+@@ -1181,15 +1181,101 @@ interface NewCharacterPanelDefaultStatus {
    canRestore: boolean;
  }
  
@@ -104,7 +104,7 @@ index 79487100..4ab04298 100644
    const refreshDefault = useCallback(async () => {
      if (!characterName) {
        setDefaultStatus(null);
-@@ -1204,14 +1282,138 @@ function IniSettingsPanel() {
+@@ -1204,14 +1282,146 @@ function IniSettingsPanel() {
      } catch (error) {
        console.error("[INI panels] failed to read new-character default", error);
        setDefaultStatus(null);
@@ -254,7 +254,7 @@ index 79487100..4ab04298 100644
  
    const saveAsDefault = async () => {
      if (!characterName || !defaultStatus) return;
-@@ -1274,8 +1476,166 @@ function IniSettingsPanel() {
+@@ -1274,8 +1476,167 @@ function IniSettingsPanel() {
      }
    };
  
