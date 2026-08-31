@@ -118,9 +118,9 @@ modules:
       # instead of downloading from CDN. electron-builder copies build/cef-runtime/
       # to resources/cef-runtime/ where the launcher reads it as embeddedRoot.
       - mkdir -p build/cef-runtime
-      - cp btui-cef-linux-x64-1.0.44.zip build/cef-runtime/
+      - cp btui-cef-linux-x64-1.0.52.zip build/cef-runtime/
       - |
-        printf '%s\n' '{"version":"1.0.44","platform":"linux","architecture":"x64","protocolVersion":4,"registryVersion":6,"archiveUrl":"https://client.blackthorn-daoc.com/cef/linux-x64/btui-cef-linux-x64-1.0.44.zip","archiveFile":"btui-cef-linux-x64-1.0.44.zip","sha256":"152a4ebcdf81eced358bc827ff3fdf278f7231779eea335954267e963488f54f"}' > build/cef-runtime/manifest.json
+        printf '%s\n' '{"version":"1.0.52","platform":"linux","architecture":"x64","protocolVersion":4,"registryVersion":7,"archiveUrl":"https://client.blackthorn-daoc.com/cef/linux-x64/btui-cef-linux-x64-1.0.52.zip","archiveFile":"btui-cef-linux-x64-1.0.52.zip","sha256":"bf45af8f69aac2b7b7e4bd6daf35a718c81ec1079025237ba5b257b37968de0a"}' > build/cef-runtime/manifest.json
 
       # Install npm dependencies from the offline cache produced by setup.sh
       - npm ci --offline
@@ -181,8 +181,8 @@ modules:
       # Bundled CEF runtime — extracted by the launcher on first run to XDG_DATA_HOME.
       # Update version, sha256, and manifest.json in build-commands together when bumping.
       - type: file
-        url: https://client.blackthorn-daoc.com/cef/linux-x64/btui-cef-linux-x64-1.0.44.zip
-        sha256: 152a4ebcdf81eced358bc827ff3fdf278f7231779eea335954267e963488f54f
+        url: https://client.blackthorn-daoc.com/cef/linux-x64/btui-cef-linux-x64-1.0.52.zip
+        sha256: bf45af8f69aac2b7b7e4bd6daf35a718c81ec1079025237ba5b257b37968de0a
 
       # Fixes btui_cef_host buffer overflow: uses TMPDIR-based short paths for
       # --log-path and --cache-path instead of the wine prefix path (which
