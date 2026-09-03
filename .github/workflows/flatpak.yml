@@ -2,7 +2,7 @@ name: Build Flatpak
 
 # Triggers:
 #   - Push to main: rebuilds on any packaging change (flatpak/ directory).
-#   - Daily schedule: checks daoc-blackthorn/launcher for a new release and
+#   - Daily schedule: checks daoc-blackthorn/blackthorn for a new release and
 #     skips if the latest upstream tag already has a packaging release here.
 #   - workflow_dispatch: build a specific tag (or latest). Always creates a
 #     new packaging revision even if the upstream tag was already packaged.
@@ -11,7 +11,7 @@ name: Build Flatpak
 # upstream launcher tag and N is the packaging revision (auto-incremented).
 #
 # Required secrets:
-#   LAUNCHER_TOKEN — a PAT with read access to daoc-blackthorn/launcher.
+#   LAUNCHER_TOKEN — a PAT with read access to daoc-blackthorn/blackthorn.
 # Optional secrets/variables for Cloudflare R2 repo publishing (flatpak update support):
 #   FLATPAK_REPO_URL (variable), CF_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
 
@@ -55,7 +55,7 @@ jobs:
           if [ -n "${{ inputs.tag }}" ]; then
             UPSTREAM_TAG="${{ inputs.tag }}"
           else
-            UPSTREAM_TAG=$(gh release view --repo daoc-blackthorn/launcher \
+            UPSTREAM_TAG=$(gh release view --repo daoc-blackthorn/blackthorn \
               --json tagName --jq .tagName)
           fi
 
@@ -87,7 +87,7 @@ jobs:
         if: steps.release.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
-          repository: daoc-blackthorn/launcher
+          repository: daoc-blackthorn/blackthorn
           ref: ${{ steps.release.outputs.upstream_tag }}
           token: ${{ secrets.LAUNCHER_TOKEN }}
           path: upstream
@@ -231,7 +231,7 @@ jobs:
 
           # Find the previous upstream release to compute changelog range.
           PREV_UPSTREAM_TAG=$(GH_TOKEN="$LAUNCHER_TOKEN" gh release list \
-            --repo daoc-blackthorn/launcher \
+            --repo daoc-blackthorn/blackthorn \
             --json tagName,createdAt \
             --jq "[.[] | select(.tagName != \"${UPSTREAM_TAG}\")] \
                   | sort_by(.createdAt) | reverse | .[0].tagName // empty")
@@ -260,7 +260,7 @@ jobs:
               echo "## Changelog (${PREV_UPSTREAM_TAG} → ${UPSTREAM_TAG})"
               echo '```'
               GH_TOKEN="$LAUNCHER_TOKEN" gh api \
-                "repos/daoc-blackthorn/launcher/compare/${PREV_UPSTREAM_TAG}...${UPSTREAM_TAG}" \
+                "repos/daoc-blackthorn/blackthorn/compare/${PREV_UPSTREAM_TAG}...${UPSTREAM_TAG}" \
                 --jq '.commits[] | "- \(.commit.message | split("\n")[0])"'
               echo '```'
             fi
