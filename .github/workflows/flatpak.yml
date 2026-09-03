@@ -27,7 +27,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Upstream launcher tag to build (empty = latest)'
+        description: 'Upstream launcher tag to build, e.g. launcher-v0.30.16 (empty = latest)'
         required: false
         default: ''
 
@@ -55,8 +55,12 @@ jobs:
           if [ -n "${{ inputs.tag }}" ]; then
             UPSTREAM_TAG="${{ inputs.tag }}"
           else
-            UPSTREAM_TAG=$(gh release view --repo daoc-blackthorn/blackthorn \
-              --json tagName --jq .tagName)
+            # This is a monorepo — filter to launcher releases only, since other
+            # components (server, tools, ...) may also publish releases here.
+            UPSTREAM_TAG=$(gh release list --repo daoc-blackthorn/blackthorn --limit 100 \
+              --json tagName,createdAt \
+              --jq '[.[] | select(.tagName | startswith("launcher-"))] \
+                    | sort_by(.createdAt) | reverse | .[0].tagName')
           fi
 
           # Find the highest existing packaging revision for this upstream tag.
@@ -94,12 +98,12 @@ jobs:
 
       - name: Overlay packaging files onto upstream source
         if: steps.release.outputs.skip != 'true'
-        run: cp -r flatpak upstream/flatpak
+        run: cp -r flatpak upstream/apps/launcher/flatpak
 
       - name: Resolve CEF runtime version from CDN and patch manifest
         if: steps.release.outputs.skip != 'true'
         run: |
-          python3 - upstream/flatpak/com.blackthorn.daoc.Launcher.yml << 'PY'
+          python3 - upstream/apps/launcher/flatpak/com.blackthorn.daoc.Launcher.yml << 'PY'
           import json, re, sys, urllib.request
           from pathlib import Path
 
@@ -141,26 +145,27 @@ jobs:
         if: steps.release.outputs.skip != 'true'
         run: |
           TAG="${{ steps.release.outputs.upstream_tag }}"
-          VERSION="${TAG#v}"
+          VERSION="${TAG#launcher-}"
+          VERSION="${VERSION#v}"
           DATE="$(date -u +%F)"
           sed -i "s|<release version=\"[^\"]*\" date=\"[^\"]*\"/>|<release version=\"${VERSION}\" date=\"${DATE}\"/>|" \
-            upstream/flatpak/com.blackthorn.daoc.Launcher.metainfo.xml
+            upstream/apps/launcher/flatpak/com.blackthorn.daoc.Launcher.metainfo.xml
 
       - name: Cache npm offline sources
         if: steps.release.outputs.skip != 'true'
         id: sources-cache
         uses: actions/cache@v4
         with:
-          path: upstream/flatpak/generated-sources.json
-          key: npm-sources-${{ hashFiles('upstream/package-lock.json') }}
+          path: upstream/apps/launcher/flatpak/generated-sources.json
+          key: npm-sources-${{ hashFiles('upstream/apps/launcher/package-lock.json') }}
 
       - name: Generate npm offline sources for Flatpak
         if: steps.release.outputs.skip != 'true' && steps.sources-cache.outputs.cache-hit != 'true'
         run: |
           pip install --quiet \
             "git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node"
-          flatpak-node-generator --no-requests-cache npm upstream/package-lock.json \
-            -o upstream/flatpak/generated-sources.json
+          flatpak-node-generator --no-requests-cache npm upstream/apps/launcher/package-lock.json \
+            -o upstream/apps/launcher/flatpak/generated-sources.json
 
       - name: Install flatpak and pre-install runtimes as root
         if: steps.release.outputs.skip != 'true'
@@ -180,7 +185,7 @@ jobs:
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: Blackthorn-Launcher-${{ steps.release.outputs.our_tag }}-linux-x64.flatpak
-          manifest-path: upstream/flatpak/com.blackthorn.daoc.Launcher.yml
+          manifest-path: upstream/apps/launcher/flatpak/com.blackthorn.daoc.Launcher.yml
           cache-key: flatpak-builder-${{ steps.release.outputs.upstream_tag }}
 
       - name: Publish OSTree repo to Cloudflare R2
@@ -229,11 +234,14 @@ jobs:
           BUNDLE="Blackthorn-Launcher-${OUR_TAG}-linux-x64.flatpak"
           REPO_URL="${{ vars.FLATPAK_REPO_URL }}"
 
-          # Find the previous upstream release to compute changelog range.
+          # Find the previous upstream release to compute changelog range. This is a
+          # monorepo — filter to launcher releases only, since other components
+          # (server, tools, ...) may also publish releases here.
           PREV_UPSTREAM_TAG=$(GH_TOKEN="$LAUNCHER_TOKEN" gh release list \
-            --repo daoc-blackthorn/blackthorn \
+            --repo daoc-blackthorn/blackthorn --limit 100 \
             --json tagName,createdAt \
-            --jq "[.[] | select(.tagName != \"${UPSTREAM_TAG}\")] \
+            --jq "[.[] | select(.tagName != \"${UPSTREAM_TAG}\") \
+                  | select(.tagName | startswith(\"launcher-\"))] \
                   | sort_by(.createdAt) | reverse | .[0].tagName // empty")
 
           {
