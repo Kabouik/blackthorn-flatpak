@@ -59,8 +59,7 @@ jobs:
             # components (server, tools, ...) may also publish releases here.
             UPSTREAM_TAG=$(gh release list --repo daoc-blackthorn/blackthorn --limit 100 \
               --json tagName,createdAt \
-              --jq '[.[] | select(.tagName | startswith("launcher-"))] \
-                    | sort_by(.createdAt) | reverse | .[0].tagName')
+              --jq '[.[] | select(.tagName | startswith("launcher-"))] | sort_by(.createdAt) | reverse | .[0].tagName')
           fi
 
           # Find the highest existing packaging revision for this upstream tag.
@@ -267,9 +266,16 @@ jobs:
               echo ""
               echo "## Changelog (${PREV_UPSTREAM_TAG} → ${UPSTREAM_TAG})"
               echo '```'
-              GH_TOKEN="$LAUNCHER_TOKEN" gh api \
-                "repos/daoc-blackthorn/blackthorn/compare/${PREV_UPSTREAM_TAG}...${UPSTREAM_TAG}" \
-                --jq '.commits[] | "- \(.commit.message | split("\n")[0])"'
+              # This is a monorepo, so the plain tag..tag compare would include
+              # commits from unrelated apps. Scope to apps/launcher by bounding
+              # the commits-by-path listing to just after the previous tag's date.
+              PREV_DATE=$(GH_TOKEN="$LAUNCHER_TOKEN" gh api \
+                "repos/daoc-blackthorn/blackthorn/commits/${PREV_UPSTREAM_TAG}" \
+                --jq '.commit.committer.date')
+              SINCE=$(date -u -d "${PREV_DATE} +1 second" +%Y-%m-%dT%H:%M:%SZ)
+              GH_TOKEN="$LAUNCHER_TOKEN" gh api --paginate \
+                "repos/daoc-blackthorn/blackthorn/commits?sha=${UPSTREAM_TAG}&path=apps/launcher&since=${SINCE}&per_page=100" \
+                --jq '.[] | "- \(.commit.message | split("\n")[0])"'
               echo '```'
             fi
           } > release-notes.md
