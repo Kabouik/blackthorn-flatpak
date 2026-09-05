@@ -1,7 +1,8 @@
 name: Cleanup old releases
 
 # Removes GitHub Releases (and their git tags) older than 5 days to keep
-# repo storage/asset usage down. Runs daily and can also be triggered manually.
+# repo storage/asset usage down. Always keeps the single latest release,
+# even if it's older than the cutoff. Runs daily and can also be triggered manually.
 
 on:
   schedule:
@@ -24,7 +25,7 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Delete releases older than 5 days
+      - name: Delete releases older than 5 days (always keep the latest)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -36,17 +37,27 @@ jobs:
           cutoff=$(date -u -d "-${MAX_AGE_DAYS} days" +%s)
           echo "Cutoff timestamp: $cutoff ($(date -u -d "-${MAX_AGE_DAYS} days" --iso-8601=seconds))"
 
+          # Fetch all releases (paginated), sorted newest first
           gh api "repos/${REPO}/releases" --paginate \
-            --jq '.[] | [.id, .tag_name, .created_at] | @tsv' > releases.tsv || true
+            --jq 'sort_by(.created_at) | reverse | .[] | [.id, .tag_name, .created_at] | @tsv' > releases.tsv || true
 
           if [ ! -s releases.tsv ]; then
             echo "No releases found."
             exit 0
           fi
 
+          latest_id=$(head -n 1 releases.tsv | cut -f1)
+          latest_tag=$(head -n 1 releases.tsv | cut -f2)
+          echo "Latest release is '$latest_tag' (id=$latest_id) — will always be kept."
+
           deleted_count=0
 
           while IFS=$'\t' read -r id tag created_at; do
+            if [ "$id" = "$latest_id" ]; then
+              echo "Release '$tag' (id=$id) is the latest release, keeping."
+              continue
+            fi
+
             created_ts=$(date -u -d "$created_at" +%s)
 
             if [ "$created_ts" -lt "$cutoff" ]; then
