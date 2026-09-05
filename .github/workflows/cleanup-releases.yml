@@ -1,0 +1,72 @@
+name: Cleanup old releases
+
+# Removes GitHub Releases (and their git tags) older than 5 days to keep
+# repo storage/asset usage down. Runs daily and can also be triggered manually.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # every day at 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'List what would be deleted without deleting anything'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete releases older than 5 days
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          MAX_AGE_DAYS: 5
+        run: |
+          set -euo pipefail
+
+          cutoff=$(date -u -d "-${MAX_AGE_DAYS} days" +%s)
+          echo "Cutoff timestamp: $cutoff ($(date -u -d "-${MAX_AGE_DAYS} days" --iso-8601=seconds))"
+
+          gh api "repos/${REPO}/releases" --paginate \
+            --jq '.[] | [.id, .tag_name, .created_at] | @tsv' > releases.tsv || true
+
+          if [ ! -s releases.tsv ]; then
+            echo "No releases found."
+            exit 0
+          fi
+
+          deleted_count=0
+
+          while IFS=$'\t' read -r id tag created_at; do
+            created_ts=$(date -u -d "$created_at" +%s)
+
+            if [ "$created_ts" -lt "$cutoff" ]; then
+              echo "Release '$tag' (id=$id) created at $created_at is older than ${MAX_AGE_DAYS} days."
+
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "  [dry-run] would delete release and tag '$tag'"
+              else
+                echo "  Deleting release id=$id"
+                gh api -X DELETE "repos/${REPO}/releases/${id}"
+
+                echo "  Deleting tag ref '$tag'"
+                gh api -X DELETE "repos/${REPO}/git/refs/tags/${tag}" || \
+                  echo "  (tag ref already gone or could not be deleted)"
+
+                deleted_count=$((deleted_count + 1))
+              fi
+            else
+              echo "Release '$tag' (id=$id) created at $created_at is within retention window, keeping."
+            fi
+          done < releases.tsv
+
+          echo "Done. Deleted ${deleted_count} release(s)."
