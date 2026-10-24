@@ -162,7 +162,7 @@ jobs:
         if: steps.release.outputs.skip != 'true' && steps.sources-cache.outputs.cache-hit != 'true'
         run: |
           pip install --quiet \
-            "git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node"
+            "git+https://github.com/flatpak/flatpak-builder-tools.git@74697c75b630d7330e77250fc13cb5ea688d9479#subdirectory=node"
           flatpak-node-generator --no-requests-cache npm upstream/apps/launcher/package-lock.json \
             -o upstream/apps/launcher/flatpak/generated-sources.json
 
